@@ -20,10 +20,55 @@ local Window = Fluent:CreateWindow({
     MinimizeKey = Enum.KeyCode.LeftControl,
 })
 
+local KeyPassed = false
+local CorrectKey = "A200915E"
+
 local Tabs = {
+    Key = Window:AddTab({ Title = "Key", Icon = "key" }),
     Main = Window:AddTab({ Title = "Dungeon", Icon = "swords" }),
     Ball = Window:AddTab({ Title = "Auto Ball", Icon = "circle" }),
 }
+
+local KeyStatus = Tabs.Key:AddParagraph({
+    Title = "Status",
+    Content = "Digite a key para liberar o script"
+})
+
+Tabs.Key:AddInput("KeyInput", {
+    Title = "Sistema de Key",
+    Placeholder = "Digite sua key aqui",
+    Numeric = false,
+    Finished = true,
+    Callback = function(value)
+        if value == CorrectKey then
+            KeyPassed = true
+
+            if KeyStatus then
+                KeyStatus:SetDesc("Key correta! Script liberado.")
+            end
+
+            Fluent:Notify({
+                Title = "Key correta",
+                Content = "Acesso liberado!",
+                Duration = 3
+            })
+
+            Window:SelectTab(2)
+        else
+            KeyPassed = false
+
+            if KeyStatus then
+                KeyStatus:SetDesc("Key incorreta. Tente novamente.")
+            end
+
+            Fluent:Notify({
+                Title = "Key errada",
+                Content = "Verifique a key e tente de novo.",
+                Duration = 3
+            })
+        end
+    end
+})
 
 -- Variáveis do Auto Dungeon
 local AutoDungeonEnabled = false
@@ -34,6 +79,16 @@ Tabs.Main:AddToggle("AutoDungeon", {
     Title = "Auto Dungeon",
     Default = false,
     Callback = function(state)
+        if not KeyPassed then
+            AutoDungeonEnabled = false
+            Fluent:Notify({
+                Title = "Key necessária",
+                Content = "Digite a key primeiro.",
+                Duration = 3
+            })
+            return
+        end
+
         AutoDungeonEnabled = state
     end
 })
@@ -42,10 +97,21 @@ Tabs.Main:AddToggle("AutoLeave", {
     Title = "Auto Leave",
     Default = false,
     Callback = function(state)
+        if not KeyPassed then
+            AutoLeaveEnabled = false
+
+            Fluent:Notify({
+                Title = "Key necessária",
+                Content = "Digite a key primeiro.",
+                Duration = 3
+            })
+
+            return
+        end
+
         AutoLeaveEnabled = state
     end
 })
-
 Tabs.Main:AddSlider("LeaveRoom", {
     Title = "Leave Room",
     Min = 1,
@@ -100,6 +166,21 @@ Tabs.Ball:AddToggle("AutoBall", {
     Title = "Ativar Auto Ball",
     Default = false,
     Callback = function(state)
+        if not KeyPassed then
+            AutoBallEnabled = false
+            Fluent:Notify({
+                Title = "Key necessária",
+                Content = "Digite a key primeiro.",
+                Duration = 3
+            })
+
+            if BallStatus then
+                BallStatus:SetDesc("Digite a key primeiro")
+            end
+
+            return
+        end
+
         AutoBallEnabled = state
 
         if BallStatus then
@@ -305,12 +386,12 @@ local function ensureCharacterAlive()
     if not character or not character.Parent then
         return false
     end
-    
+
     local humanoid = character:FindFirstChild("Humanoid")
     if not humanoid or humanoid.Health <= 0 then
         return false
     end
-    
+
     return true
 end
 
@@ -509,18 +590,18 @@ local lastEmptyTime = tick()
 
 task.spawn(function()
     while task.wait(0.03) do
-        if not AutoDungeonEnabled then 
+        if not AutoDungeonEnabled then
             setStatus("Waiting (Disabled)")
-            continue 
+            continue
         end
-        
+
         pcall(function()
             local notifyGui = LocalPlayer.PlayerGui:FindFirstChild("HUD")
             if notifyGui then
                 local notifyDungeon = notifyGui:FindFirstChild("Main")
                     and notifyGui.Main:FindFirstChild("GamemodeNotify")
                     and notifyGui.Main.GamemodeNotify:FindFirstChild("Notify_Dungeon_World9Dungeon")
-                
+
                 if notifyDungeon and notifyDungeon.Visible then
                     local yesBtn = notifyDungeon:FindFirstChild("Actions") and notifyDungeon.Actions:FindFirstChild("YES")
                     if yesBtn then
@@ -528,23 +609,23 @@ task.spawn(function()
                         task.wait(0.5)
                         setStatus("Clicking YES...")
                         robustClickObject(yesBtn)
-                        
+
                         local tl
                         pcall(function()
                             local tlGui = LocalPlayer.PlayerGui:FindFirstChild("Windows")
                             tl = tlGui and tlGui:FindFirstChild("TeleportLoading")
                         end)
-                        
+
                         local waitStart = tick()
                         while tl and not tl.Visible and (tick() - waitStart < 4) do
                             task.wait(0.05)
                         end
-                        
+
                         if tl and tl.Visible then
                             setStatus("Waiting for loading screen...")
                             repeat task.wait(0.05) until not tl.Visible
                         end
-                        
+
                         setStatus("Loading complete, waiting 1s...")
                         task.wait(1)
                     end
@@ -564,7 +645,7 @@ task.spawn(function()
 
         local inDungeon = false
         local dungeonEnemiesFolder = nil
-        
+
         pcall(function()
             local dungeonArenas = workspace:FindFirstChild("DungeonArenas")
             if dungeonArenas then
@@ -592,7 +673,7 @@ task.spawn(function()
                 local tl = LocalPlayer.PlayerGui:FindFirstChild("Windows")
                 if tl then teleportLoading = tl:FindFirstChild("TeleportLoading") end
             end)
-            
+
             if teleportLoading and teleportLoading.Visible then
                 setStatus("Waiting for loading screen...")
                 repeat task.wait(0.05) until not teleportLoading.Visible
@@ -605,7 +686,7 @@ task.spawn(function()
                     local leaveBtn = LocalPlayer.PlayerGui:FindFirstChild("DungeonGui")
                         and LocalPlayer.PlayerGui.DungeonGui:FindFirstChild("Main")
                         and LocalPlayer.PlayerGui.DungeonGui.Main:FindFirstChild("Leave")
-                        
+
                     if leaveBtn and (leaveBtn.Visible or leaveBtn.Parent.Visible) then
                         robustClickObject(leaveBtn)
                         task.wait(0.3)
@@ -629,7 +710,7 @@ task.spawn(function()
                     local roomText = currentRoom > 0 and ("[Room " .. currentRoom .. "] ") or ""
                     setStatus(roomText .. "Farming (Perfect Position: " .. coveredCount .. "/" .. #targets .. " enemies)")
                     MovementGoTo(tcf)
-                    
+
                     local startTime = tick()
                     while tick() - startTime < 3 and AutoDungeonEnabled do
                         local anyCoveredAlive = false
@@ -651,13 +732,13 @@ task.spawn(function()
                 end
             else
                 setStatus("Waiting for enemies or dungeon finished...")
-                
+
                 if AutoLeaveEnabled and (tick() - lastEmptyTime > 4) then
                     pcall(function()
                         local leaveBtn = LocalPlayer.PlayerGui:FindFirstChild("DungeonGui")
                             and LocalPlayer.PlayerGui.DungeonGui:FindFirstChild("Main")
                             and LocalPlayer.PlayerGui.DungeonGui.Main:FindFirstChild("Leave")
-                            
+
                         if leaveBtn and (leaveBtn.Visible or leaveBtn.Parent.Visible) then
                             setStatus("Leaving Dungeon (Auto Leave)...")
                             robustClickObject(leaveBtn)
@@ -678,4 +759,8 @@ end)
 task.spawn(collectionLoop)
 
 Window:SelectTab(1)
-Fluent:Notify({ Title = "Script Carregado", Content = "Auto Dungeon e Auto Ball prontos!", Duration = 3 })
+Fluent:Notify({
+    Title = "Script Carregado",
+    Content = "Auto Dungeon e Auto Ball prontos!",
+    Duration = 3
+})
