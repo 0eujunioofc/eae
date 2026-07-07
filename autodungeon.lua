@@ -8,7 +8,7 @@ local RunService = game:GetService("RunService")
 local LocalPlayer = Players.LocalPlayer
 
 -- Carregar Fluent UI
-local Fluent = loadstring(game:HttpGet("https://raw.githubusercontent.com/junitokk/dungeon_/refs/heads/main/junio.lua"))()
+loadstring(game:HttpGet("https://raw.githubusercontent.com/0eujunioofc/eae/refs/heads/main/autodungeon.lua"))()
 
 local Window = Fluent:CreateWindow({
     Title = '<font color="rgb(0,200,80)">BR Anime Astral</font>',
