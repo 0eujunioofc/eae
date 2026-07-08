@@ -31,7 +31,7 @@ local Tabs = {
     Settings = Window:AddTab({ Title = "Settings", Icon = "sliders-horizontal" }),
 }
 
--- Tudo relacionado a modo fica dentro de Gamemodes
+-- Todos os modulos ficam dentro da aba Gamemodes
 Tabs.Main = Tabs.Gamemodes
 Tabs.Dungeon = Tabs.Gamemodes
 Tabs.Defense = Tabs.Gamemodes
@@ -40,12 +40,45 @@ Tabs.Gate = Tabs.Gamemodes
 Tabs.Arise = Tabs.Gamemodes
 Tabs.AutoJoin = Tabs.Gamemodes
 
-local function AddSection(tab, title, desc)
+-- Espaco visual entre os modulos
+local function AddSpace(tab)
     return tab:AddParagraph({
-        Title = "━━━━ " .. title,
+        Title = " ",
+        Content = " "
+    })
+end
+
+-- Separador padrao dos modulos
+local function AddSection(tab, title, desc)
+    AddSpace(tab)
+
+    return tab:AddParagraph({
+        Title = "========== " .. title .. " ==========",
         Content = desc or ""
     })
 end
+
+-- Separadores prontos para cada modulo
+local function AddGateSection()
+    return AddSection(Tabs.Gate, "AUTO GATE", "[FORA DO MODO] Detecta notificacoes de Gate.")
+end
+
+local function AddAutoJoinSection()
+    return AddSection(Tabs.AutoJoin, "AUTO JOIN DO GATE", "[FORA DO MODO] Usado junto com o Gate.")
+end
+
+local function AddDungeonSection()
+    return AddSection(Tabs.Main, "AUTO DUNGEON", "[DENTRO DO MODO] Sistema da Dungeon World9.")
+end
+
+local function AddAriseSection()
+    return AddSection(Tabs.Arise, "AUTO ARISE", "[DENTRO DO MODO] Procura ArisePrompt dentro de RaidArenas.")
+end
+
+local function AddBallSection()
+    return AddSection(Tabs.Ball, "AUTO BALL", "[FORA DO MODO] Sistema das bolas do World8.")
+end
+
 
 -- VARIÁVEIS DO AUTO ARISE
 local AutoAriseEnabled = false
@@ -266,66 +299,7 @@ local function autoJoinLoop()
     end
 end
 
--- Interface do Auto Join
-AddSection(Tabs.AutoJoin, "AUTO JOIN", "Sistema automático para entrar em servidores")
 
-Tabs.AutoJoin:AddToggle("AutoJoinToggle", {
-    Title = "Ativar Auto Join",
-    Default = false,
-    Callback = function(state)
-        if not KeyPassed then
-            AutoJoinEnabled = false
-            Fluent:Notify({
-                Title = "Key necessária",
-                Content = "Digite a key primeiro.",
-                Duration = 3
-            })
-            return
-        end
-        
-        AutoJoinEnabled = state
-        JoinStatus:SetDesc(state and "Auto Join ativado" or "Auto Join desativado")
-        
-        if state then
-            Fluent:Notify({
-                Title = "Auto Join Ativado",
-                Content = "Procurando botões JOIN automaticamente",
-                Duration = 3
-            })
-        end
-    end
-})
-
-JoinStatus = Tabs.AutoJoin:AddParagraph({ Title = "Status do Auto Join", Content = "Desativado" })
-
-Tabs.AutoJoin:AddSlider("JoinInterval", {
-    Title = "Intervalo de Verificação (segundos)",
-    Min = 0.5,
-    Max = 5,
-    Default = 1.0,
-    Rounding = 1,
-    Callback = function(value)
-        JoinDetectionInterval = value
-    end
-})
-
-Tabs.AutoJoin:AddButton({
-    Title = "🔍 Verificar JOIN Agora",
-    Description = "Procura por botões JOIN manualmente",
-    Callback = function()
-        local buttons = findJoinButtons()
-        if #buttons > 0 then
-            JoinStatus:SetDesc("✅ " .. #buttons .. " botões JOIN encontrados")
-            Fluent:Notify({
-                Title = "Verificação Manual",
-                Content = #buttons .. " botões JOIN encontrados",
-                Duration = 3
-            })
-        else
-            JoinStatus:SetDesc("❌ Nenhum botão JOIN encontrado")
-        end
-    end
-})
 
 -- ========== SISTEMA DE AUTO GATE ==========
 local function verifyGateEntry()
@@ -426,6 +400,73 @@ local function selectedRanksText()
     return table.concat(list, ", ")
 end
 
+-- FUNÇÃO CORRIGIDA PARA CLICAR YES AUTOMATICAMENTE
+local function clickYesInCurrentGateNotify()
+    if not ensureCharacterAlive() then return false end
+    
+    local notifyRoot = LocalPlayer.PlayerGui:FindFirstChild("HUD") 
+        and LocalPlayer.PlayerGui.HUD:FindFirstChild("Main") 
+        and LocalPlayer.PlayerGui.HUD.Main:FindFirstChild("GamemodeNotify")
+    
+    if not notifyRoot then return false end
+    
+    for _, card in ipairs(notifyRoot:GetChildren()) do
+        if card.Name:match("^Notify_Raid_") and (card.Visible == true) then
+            local description = card:FindFirstChild("Description")
+            if description and description:IsA("TextLabel") then
+                local text = description.Text or ""
+                if text:lower():find("gate") then
+                    local actions = card:FindFirstChild("Actions")
+                    if actions then
+                        -- Primeiro tenta encontrar botões com nomes específicos
+                        local yesButtons = {
+                            actions:FindFirstChild("YES"),
+                            actions:FindFirstChild("Yes"),
+                            actions:FindFirstChild("CONFIRM"),
+                            actions:FindFirstChild("Confirm")
+                        }
+                        
+                        for _, btn in ipairs(yesButtons) do
+                            if btn and (btn:IsA("TextButton") or btn:IsA("ImageButton")) then
+                                if robustClickObject(btn) then
+                                    Fluent:Notify({
+                                        Title = "✅ YES clicado automaticamente",
+                                        Content = "Gate aceito com sucesso!",
+                                        Duration = 3
+                                    })
+                                    return true
+                                end
+                            end
+                        end
+                        
+                        -- Se não encontrou, procura por qualquer botão que contenha "yes" no nome ou texto
+                        for _, child in ipairs(actions:GetDescendants()) do
+                            if (child:IsA("TextButton") or child:IsA("ImageButton")) then
+                                local childName = (child.Name or ""):lower()
+                                local childText = (child.Text or ""):lower()
+                                
+                                if childName:find("yes") or childText:find("yes") or 
+                                   childName:find("confirm") or childText:find("confirm") then
+                                    if robustClickObject(child) then
+                                        Fluent:Notify({
+                                            Title = "✅ Botão clicado automaticamente",
+                                            Content = "Gate aceito com sucesso!",
+                                            Duration = 3
+                                        })
+                                        return true
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return false
+end
+
+-- FUNÇÃO MELHORADA PARA SCANEAR GATES
 local function scanCurrentGates()
     if not AutoGateEnabled then return end
     
@@ -436,36 +477,48 @@ local function scanCurrentGates()
     if not success or not notifyRoot then return end
 
     for _, card in ipairs(notifyRoot:GetChildren()) do
-        if card.Name:match("^Notify_Raid_") then
-            task.spawn(function()
-                task.wait(0.2)
-                
-                local desc = card:FindFirstChild("Description")
-                if not desc or not desc:IsA("TextLabel") then return end
+        if card.Name:match("^Notify_Raid_") and card.Visible then
+            local desc = card:FindFirstChild("Description")
+            if not desc or not desc:IsA("TextLabel") then return end
 
-                local text = desc.Text or ""
-                local isGate = text:lower():find("gate")
-                if not isGate then return end
+            local text = desc.Text or ""
+            local isGate = text:lower():find("gate")
+            if not isGate then return end
 
-                local rank = text:match("Rank%s+([SABCDEF])")
-                local worldNum = text:match("World%s+(%d+)")
+            local rank = text:match("Rank%s+([SABCDEF])")
+            local worldNum = text:match("World%s+(%d+)")
 
-                if rank and worldNum then
-                    GateStatus:SetDesc("Gate encontrado: Rank " .. rank .. " | World " .. worldNum)
+            if rank and worldNum then
+                GateStatus:SetDesc("⚡ Gate encontrado: Rank " .. rank .. " | World " .. worldNum)
 
-                    if isGateRankSelected(rank) and tonumber(worldNum) == SelectedGateWorld then
-                        Fluent:Notify({
-                            Title = "⚡ GATE ENCONTRADO",
-                            Content = "Rank " .. rank .. " | World " .. worldNum,
-                            Duration = 5
-                        })
+                if isGateRankSelected(rank) and tonumber(worldNum) == SelectedGateWorld then
+                    Fluent:Notify({
+                        Title = "⚡ GATE ENCONTRADO",
+                        Content = "Rank " .. rank .. " | World " .. worldNum,
+                        Duration = 5
+                    })
+                    
+                    -- Tenta clicar YES automaticamente se o modo automático estiver ativado
+                    if GateAutomationEnabled then
+                        task.wait(0.5) -- Pequeno delay para garantir que a interface carregou
+                        local success = clickYesInCurrentGateNotify()
+                        if success then
+                            GateStatus:SetDesc("✅ Gate Rank " .. rank .. " aceito automaticamente!")
+                        else
+                            GateStatus:SetDesc("⚠️ Gate encontrado - clique YES manualmente")
+                        end
+                    else
+                        GateStatus:SetDesc("⚠️ Gate encontrado - clique YES manualmente")
                     end
+                else
+                    GateStatus:SetDesc("✗ Gate encontrado (Rank " .. rank .. ") não está selecionado")
                 end
-            end)
+            end
         end
     end
 end
 
+-- FUNÇÃO MELHORADA PARA DETECTAR NOVOS GATES
 local function setupGateDetector()
     local success, notifyRoot = pcall(function()
         return LocalPlayer.PlayerGui:WaitForChild("HUD"):WaitForChild("Main"):WaitForChild("GamemodeNotify")
@@ -475,16 +528,30 @@ local function setupGateDetector()
         notifyRoot.ChildAdded:Connect(function(card)
             if card.Name:match("^Notify_Raid_") then
                 task.spawn(function()
-                    task.wait(0.3)
+                    task.wait(0.3) -- Aguarda a animação da notificação
                     scanCurrentGates()
                 end)
             end
         end)
+        
+        -- Também monitora mudanças de visibilidade
+        for _, card in ipairs(notifyRoot:GetChildren()) do
+            if card.Name:match("^Notify_Raid_") then
+                card:GetPropertyChangedSignal("Visible"):Connect(function()
+                    if card.Visible then
+                        task.spawn(function()
+                            task.wait(0.3)
+                            scanCurrentGates()
+                        end)
+                    end
+                end)
+            end
+        end
     end
 end
 
--- Interface do Gate
-AddSection(Tabs.Gate, "GATE", "Sistema de detecção automática de Gates")
+-- Interface do Gate MELHORADA
+AddGateSection()
 
 GateStatus = Tabs.Gate:AddParagraph({ Title = "Status do Gate", Content = "Pronto para detectar" })
 
@@ -512,7 +579,7 @@ Tabs.Gate:AddDropdown("GateRank", {
 })
 
 Tabs.Gate:AddToggle("AutoGateToggle", {
-    Title = "Detectar Gate",
+    Title = "Detectar Gate Automaticamente",
     Default = false,
     Callback = function(state)
         if not KeyPassed then
@@ -536,6 +603,23 @@ Tabs.Gate:AddToggle("AutoGateToggle", {
             })
             task.spawn(setupGateDetector)
             task.spawn(scanCurrentGates)
+        end
+    end
+})
+
+-- NOVO TOGGLE PARA AUTOMAÇÃO COMPLETA
+Tabs.Gate:AddToggle("GateAutomationToggle", {
+    Title = "Clique Automático no YES",
+    Description = "Clica automaticamente no botão YES quando encontrar um Gate",
+    Default = false,
+    Callback = function(state)
+        GateAutomationEnabled = state
+        if state then
+            Fluent:Notify({
+                Title = "Automação Ativada",
+                Content = "O sistema vai clicar no YES automaticamente",
+                Duration = 3
+            })
         end
     end
 })
@@ -564,6 +648,101 @@ Tabs.Gate:AddButton({
             GateStatus:SetDesc("✅ Dentro do Gate: " .. table.concat(activeGates, ", "))
         else
             GateStatus:SetDesc("❌ Fora do modo Gate")
+        end
+    end
+})
+
+Tabs.Gate:AddButton({
+    Title = "🖱️ Testar Click YES (Manual)",
+    Description = "Tenta clicar no botão YES do Gate atual manualmente",
+    Callback = function()
+        local success = clickYesInCurrentGateNotify()
+        if success then
+            GateStatus:SetDesc("✅ Click YES realizado com sucesso")
+        else
+            GateStatus:SetDesc("❌ Não foi possível clicar no YES")
+        end
+    end
+})
+
+Tabs.Gate:AddButton({
+    Title = "🔄 Scanear Gates Agora",
+    Description = "Força uma verificação imediata de Gates",
+    Callback = function()
+        if AutoGateEnabled then
+            scanCurrentGates()
+        else
+            Fluent:Notify({
+                Title = "Atenção",
+                Content = "Ative o detector de Gates primeiro",
+                Duration = 3
+            })
+        end
+    end
+})
+
+
+-- ========== INTERFACE DO AUTO JOIN DO GATE ==========
+AddAutoJoinSection()
+
+Tabs.AutoJoin:AddToggle("AutoJoinToggle", {
+    Title = "Ativar Auto Join",
+    Default = false,
+    Callback = function(state)
+        if not KeyPassed then
+            AutoJoinEnabled = false
+            Fluent:Notify({
+                Title = "Key necessária",
+                Content = "Digite a key primeiro.",
+                Duration = 3
+            })
+            return
+        end
+
+        AutoJoinEnabled = state
+        JoinStatus:SetDesc(state and "Auto Join ativado" or "Auto Join desativado")
+
+        if state then
+            Fluent:Notify({
+                Title = "Auto Join Ativado",
+                Content = "Procurando botões JOIN automaticamente",
+                Duration = 3
+            })
+        end
+    end
+})
+
+JoinStatus = Tabs.AutoJoin:AddParagraph({
+    Title = "Status do Auto Join",
+    Content = "Desativado"
+})
+
+Tabs.AutoJoin:AddSlider("JoinInterval", {
+    Title = "Intervalo de Verificação (segundos)",
+    Min = 0.5,
+    Max = 5,
+    Default = 1.0,
+    Rounding = 1,
+    Callback = function(value)
+        JoinDetectionInterval = value
+    end
+})
+
+Tabs.AutoJoin:AddButton({
+    Title = "🔍 Verificar JOIN Agora",
+    Description = "Procura por botões JOIN manualmente",
+    Callback = function()
+        local buttons = findJoinButtons()
+
+        if #buttons > 0 then
+            JoinStatus:SetDesc("✅ " .. #buttons .. " botões JOIN encontrados")
+            Fluent:Notify({
+                Title = "Verificação Manual",
+                Content = #buttons .. " botões JOIN encontrados",
+                Duration = 3
+            })
+        else
+            JoinStatus:SetDesc("❌ Nenhum botão JOIN encontrado")
         end
     end
 })
@@ -778,7 +957,7 @@ local function startAriseSystem()
 end
 
 -- Interface do Auto Arise
-AddSection(Tabs.Arise, "AUTO ARISE", "Sistema de detecção e ativação automática do Arise")
+AddAriseSection()
 
 StatusArise = Tabs.Arise:AddParagraph({ Title = "Status do Arise", Content = "Sistema pronto" })
 
@@ -839,7 +1018,7 @@ Tabs.Arise:AddSlider("AriseHoldDelay", {
 })
 
 -- ========== SISTEMA DE AUTO DUNGEON ==========
-AddSection(Tabs.Main, "DUNGEON", "Sistema automático para Dungeon World9")
+AddDungeonSection()
 
 StatusLabel = Tabs.Main:AddParagraph({ Title = "Status da Dungeon", Content = "Idle" })
 
@@ -875,7 +1054,7 @@ Tabs.Main:AddSlider("LeaveRoom", {
 })
 
 -- ========== SISTEMA DE AUTO BALL ==========
-AddSection(Tabs.Ball, "AUTO BALL", "Sistema de coleta automática de bolas do World8")
+AddBallSection()
 
 BallStatus = Tabs.Ball:AddParagraph({ Title = "Status", Content = "Auto Ball parado" })
 
