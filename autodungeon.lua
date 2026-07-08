@@ -1,5 +1,3 @@
-repeat task.wait() until game:IsLoaded()
-
 local Players = game:GetService("Players")
 local VirtualInputManager = game:GetService("VirtualInputManager")
 local GuiService = game:GetService("GuiService")
@@ -29,7 +27,7 @@ local Tabs = {
     Main = Window:AddTab({ Title = "Dungeon", Icon = "swords" }),
     Defense = Window:AddTab({ Title = "Defense", Icon = "shield" }),
     Ball = Window:AddTab({ Title = "Auto Ball", Icon = "circle" }),
-    Gate = Window:AddTab({ Title = "Gate", Icon = "door-open" }),
+    Gate = Window:AddTab({ Title = "Gate", Icon = "circle" }),
 }
 
 local DISCORD_URL = "https://discord.gg/czmYtNf8wf"
@@ -208,7 +206,59 @@ local AutoGateEnabled = false
 local SelectedGateRank = "C"
 local SelectedGateWorld = 5
 
-local GateStatus = Tabs.Gate:AddParagraph({ Title = "Status", Content = "Gate parado" })
+local GateStatus = Tabs.Gate:AddParagraph({
+    Title = "Status",
+    Content = "Gate parado"
+})
+
+local function readGateCard(card)
+    if not AutoGateEnabled then return end
+    if not card or not card.Name:match("^Notify_Raid_") then return end
+
+    task.wait(0.15)
+
+    local desc = card:FindFirstChild("Description")
+    if not desc or not desc:IsA("TextLabel") then return end
+
+    local text = desc.Text or ""
+    local rank = text:match("Rank%s+([SABCDEF])")
+    local worldNum = text:match("World%s+(%d+)")
+
+    if GateStatus then
+        GateStatus:SetDesc("Gate encontrado: Rank " .. tostring(rank) .. " | World " .. tostring(worldNum))
+    end
+
+    if rank == SelectedGateRank and tonumber(worldNum) == SelectedGateWorld then
+        if GateStatus then
+            GateStatus:SetDesc("Gate desejado encontrado: Rank " .. rank .. " | World " .. worldNum)
+        end
+
+        Fluent:Notify({
+            Title = "Gate encontrado",
+            Content = "Rank " .. rank .. " apareceu no World " .. worldNum,
+            Duration = 5
+        })
+
+        print("Gate escolhido apareceu:", card.Name, text)
+    else
+        print("Gate ignorado:", card.Name, text)
+    end
+end
+
+local function scanCurrentGates()
+    local notifyRoot = LocalPlayer.PlayerGui
+        :WaitForChild("HUD")
+        :WaitForChild("Main")
+        :WaitForChild("GamemodeNotify")
+
+    for _, card in ipairs(notifyRoot:GetChildren()) do
+        if card.Name:match("^Notify_Raid_") then
+            task.spawn(function()
+                readGateCard(card)
+            end)
+        end
+    end
+end
 
 Tabs.Gate:AddDropdown("GateRank", {
     Title = "Rank do Gate",
@@ -217,8 +267,13 @@ Tabs.Gate:AddDropdown("GateRank", {
     Default = "C",
     Callback = function(value)
         SelectedGateRank = value
+
         if GateStatus then
             GateStatus:SetDesc("Rank escolhido: " .. tostring(value))
+        end
+
+        if AutoGateEnabled then
+            task.spawn(scanCurrentGates)
         end
     end
 })
@@ -229,16 +284,24 @@ Tabs.Gate:AddToggle("AutoGate", {
     Callback = function(state)
         if not KeyPassed then
             AutoGateEnabled = false
+
             Fluent:Notify({
                 Title = "Key necessária",
                 Content = "Digite a key primeiro.",
                 Duration = 3
             })
+
             return
         end
+
         AutoGateEnabled = state
+
         if GateStatus then
             GateStatus:SetDesc(state and ("Procurando Gate Rank " .. SelectedGateRank) or "Gate parado")
+        end
+
+        if AutoGateEnabled then
+            task.spawn(scanCurrentGates)
         end
     end
 })
@@ -613,44 +676,14 @@ local function setupGateDetector()
     end)
 
     if not success or not notifyRoot then return end
-    
-    local function handleGateCard(card)
-        if not AutoGateEnabled or not card.Name:match("^Notify_Raid_") then return end
-        task.wait(0.15)
-        local desc = card:FindFirstChild("Description")
-        if not desc or not desc:IsA("TextLabel") then return end
-        local text = desc.Text or ""
-        local rank = text:match("Rank%s+([SABCDEF])")
-        local worldNum = text:match("World%s+(%d+)")
-        if GateStatus then
-            GateStatus:SetDesc("Gate encontrado: Rank " .. tostring(rank) .. " | World " .. tostring(worldNum))
-        end
-        if rank == SelectedGateRank and tonumber(worldNum) == SelectedGateWorld then
-            if GateStatus then
-                GateStatus:SetDesc("Gate desejado encontrado: Rank " .. rank .. " World " .. worldNum)
-            end
-            Fluent:Notify({
-                Title = "Gate encontrado",
-                Content = "Rank " .. rank .. " apareceu no World " .. worldNum,
-                Duration = 5
-            })
-            print("Gate escolhido apareceu:", card.Name, text)
-        else
-            print("Gate ignorado:", card.Name, text)
-        end
-    end
-    
+
     notifyRoot.ChildAdded:Connect(function(card)
         task.spawn(function()
-            handleGateCard(card)
+            readGateCard(card)
         end)
     end)
-    
-    for _, card in ipairs(notifyRoot:GetChildren()) do
-        task.spawn(function()
-            handleGateCard(card)
-        end)
-    end
+
+    task.spawn(scanCurrentGates)
 end
 
 -- Loop principal do Auto Dungeon
@@ -698,7 +731,7 @@ task.spawn(function()
         
         local currentRoom = 0
         pcall(function()
-            local roomLabel = LocalPlayer.PlayerGui:FindFirstChild("DungeonGui")
+           local roomLabel = LocalPlayer.PlayerGui:FindFirstChild("DungeonGui")
                 and LocalPlayer.PlayerGui.DungeonGui:FindFirstChild("Main")
                 and LocalPlayer.PlayerGui.DungeonGui.Main:FindFirstChild("Room")
             if roomLabel and roomLabel:IsA("TextLabel") then
@@ -814,7 +847,7 @@ end)
 
 -- Iniciar os loops do Auto Ball e Gate Detector
 task.spawn(collectionLoop)
-task.spawn(setupGateDetector)
+task.spawn(setupGateDetector) 
 
 Window:SelectTab(2)
 Fluent:Notify({
