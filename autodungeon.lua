@@ -173,7 +173,7 @@ local StatusLabel = Tabs.Main:AddParagraph({ Title = "Status", Content = "Idle" 
 
 -- Variáveis do Auto Ball
 local AutoBallEnabled = false
-local BallRadius = 150
+local BallRadius = 600
 local BallCooldown = 0.4
 local ballsFolderName = "World8Balls"
 local sphereName = "Sphere.004"
@@ -183,9 +183,9 @@ local currentTarget = "Nenhum"
 
 Tabs.Ball:AddSlider("BallRadius", {
     Title = "Raio de busca",
-    Min = 10,
-    Max = 300,
-    Default = 150,
+    Min = 300,
+    Max = 1000,
+    Default = 650,
     Rounding = 0,
     Callback = function(value)
         BallRadius = value
