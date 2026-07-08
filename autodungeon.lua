@@ -64,9 +64,12 @@ local function AddGateSection()
 end
 
 local function AddAutoJoinSection()
-    return AddSection(Tabs.AutoJoin, "AUTO JOIN DO GATE", "[FORA DO MODO] Usado junto com o Gate.")
+    return AddSection(
+        Tabs.AutoJoin,
+        "AUTO JOIN / SERVER",
+        "[FORA DO MODO] Procura botoes Join, Entrar ou Play. Nao aceita o YES do Gate."
+    )
 end
-
 local function AddDungeonSection()
     return AddSection(Tabs.Main, "AUTO DUNGEON", "[DENTRO DO MODO] Sistema da Dungeon World9.")
 end
@@ -88,6 +91,7 @@ local AriseHoldDelay = 0.2
 local AriseDetectionCount = 0
 local LastAriseEnemies = {}
 local ActiveAriseWorlds = {}
+local NotifiedAriseKeys = {}
 local AriseStatusMessage = "Sistema desativado"
 
 -- VARIÁVEIS DO AUTO GATE
@@ -821,6 +825,11 @@ local function scanAllArisePrompts(isManual)
                                         promptInfo.chances = chanceNumber
                                     end
                                 end
+
+                                -- Ignora Arise sem chances
+                                if promptInfo.chances <= 0 then
+                                    continue
+                                end
                                 
                                 table.insert(foundPrompts, promptInfo)
                                 AriseDetectionCount = AriseDetectionCount + 1
@@ -835,17 +844,20 @@ local function scanAllArisePrompts(isManual)
                                     )
                                     StatusArise:SetDesc(statusMsg)
                                     
-                                    if isManual or not promptInfo.notified then
-                                        Fluent:Notify({
-                                            Title = "⚡ ARISE DETECTADO",
-                                            Content = string.format("%s em %s (%s)", 
-                                                promptInfo.enemyName, 
-                                                promptInfo.worldName,
-                                                promptInfo.objectText),
-                                            Duration = 5
-                                        })
-                                        promptInfo.notified = true
-                                    end
+                                    local ariseKey = promptInfo.worldName .. "|" .. promptInfo.enemyName .. "|" .. promptInfo.objectText
+
+if not isManual and not NotifiedAriseKeys[ariseKey] then
+    Fluent:Notify({
+        Title = "⚡ ARISE DETECTADO",
+        Content = string.format("%s em %s (%s)", 
+            promptInfo.enemyName, 
+            promptInfo.worldName,
+            promptInfo.objectText),
+        Duration = 5
+    })
+
+    NotifiedAriseKeys[ariseKey] = true
+end
                                 end
                             end
                         end
