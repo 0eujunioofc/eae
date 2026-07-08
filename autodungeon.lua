@@ -24,10 +24,56 @@ local KeyPassed = false
 local CorrectKey = "A200915E"
 
 local Tabs = {
+    Updates = Window:AddTab({ Title = "Updates", Icon = "info" }),
     Key = Window:AddTab({ Title = "Key", Icon = "key" }),
     Main = Window:AddTab({ Title = "Dungeon", Icon = "swords" }),
+    Defense = Window:AddTab({ Title = "Defense", Icon = "shield" }),
     Ball = Window:AddTab({ Title = "Auto Ball", Icon = "circle" }),
 }
+
+local DISCORD_URL = "https://discord.gg/czmYtNf8wf"
+
+Tabs.Updates:AddButton({
+    Title = "Join Discord Server",
+    Description = "Copia o link do Discord para você ver updates, scripts e suporte.",
+    Callback = function()
+        if setclipboard then
+            setclipboard(DISCORD_URL)
+
+            Fluent:Notify({
+                Title = "Discord",
+                Content = "Link copiado!",
+                Duration = 3
+            })
+        else
+            Fluent:Notify({
+                Title = "Discord",
+                Content = "Seu executor não suporta copiar link.",
+                Duration = 3
+            })
+        end
+    end
+})
+
+Tabs.Updates:AddParagraph({
+    Title = "Version v0.1.4",
+    Content = "[Updates] Adicionado sistema de Updates/Changelog"
+})
+
+Tabs.Updates:AddParagraph({
+    Title = "Version v0.1.3",
+    Content = "[Gamemodes] Adicionado Auto Ball"
+})
+
+Tabs.Updates:AddParagraph({
+    Title = "Version v0.1.2",
+    Content = "[Gamemodes] Adicionado Auto Dungeon"
+})
+
+Tabs.Updates:AddParagraph({
+    Title = "Version v0.1.1",
+    Content = "[Main] Interface melhorada e sistema de Key"
+})
 
 local KeyStatus = Tabs.Key:AddParagraph({
     Title = "Status",
@@ -53,7 +99,7 @@ Tabs.Key:AddInput("KeyInput", {
                 Duration = 3
             })
 
-            Window:SelectTab(2)
+            Window:SelectTab(3)
         else
             KeyPassed = false
 
@@ -758,7 +804,7 @@ end)
 -- Iniciar o loop do Auto Ball
 task.spawn(collectionLoop)
 
-Window:SelectTab(1)
+Window:SelectTab(2)
 Fluent:Notify({
     Title = "Script Carregado",
     Content = "Auto Dungeon e Auto Ball prontos!",
