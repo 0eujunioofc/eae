@@ -686,6 +686,229 @@ local function collectionLoop() while task.wait(0.1) do
                 else
                     task.wait(0.15) end end end end end
 
+-- ========== SISTEMA DE AUTO FARM DUNGEON ==========
+AddSpace(Tabs.Gamemodes)
+Tabs.Gamemodes:AddParagraph({
+    Title = "========== AUTO FARM DUNGEON ==========",
+    Content = "[DENTRO DO MODO] Teleporta automaticamente para os NPCs Joker/Sho na Dungeon."
+})
+
+-- Variáveis do Auto Farm Dungeon
+local AutoFarmDungeon = false
+local TargetNPCs = { "Joker", "Sho" }  -- NPCs a serem farmados
+local FarmRadius = 50                  -- Distância máxima para considerar "próximo"
+local FarmCooldown = 1.5               -- Cooldown entre teleportes (segundos)
+local FarmStatus = "Aguardando entrada na Dungeon"
+
+-- Elemento de status
+local FarmStatusLabel = Tabs.Gamemodes:AddParagraph({
+    Title = "Status do Farm",
+    Content = FarmStatus
+})
+
+-- Função para encontrar NPCs da dungeon no ClientEnemyVisuals
+local function findDungeonNPCs()
+    local npcs = {}
+    local clientVisuals = workspace:FindFirstChild("ClientEnemyVisuals")
+    
+    if not clientVisuals then
+        return npcs
+    end
+    
+    for _, npcName in ipairs(TargetNPCs) do
+        local npcModel = clientVisuals:FindFirstChild(npcName)
+        if npcModel and npcModel:IsA("Model") then
+            -- Procura um BasePart válido no modelo (HRP, torso, etc)
+            local hrp = npcModel:FindFirstChild("HumanoidRootPart")
+            local torso = npcModel:FindFirstChild("Torso") or npcModel:FindFirstChild("UpperTorso")
+            local anyPart = npcModel:FindFirstChildWhichIsA("BasePart")
+            
+            local targetPart = hrp or torso or anyPart
+            if targetPart then
+                table.insert(npcs, {
+                    name = npcName,
+                    model = npcModel,
+                    part = targetPart,
+                    position = targetPart.Position
+                })
+            end
+        end
+    end
+    return npcs
+end
+
+-- Função para teleportar até um NPC
+local function teleportToNPC(npcInfo)
+    if not ensureCharacterAlive() then
+        return false
+    end
+    
+    local hrp = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    if not hrp then
+        return false
+    end
+    
+    -- Teleporta para a posição do NPC com um pequeno offset de altura
+    local targetPos = npcInfo.position + Vector3.new(0, 3, 0)
+    pcall(function()
+        hrp.CFrame = CFrame.new(targetPos)
+    end)
+    
+    return true
+end
+
+-- Loop principal de farm
+local function farmDungeonLoop()
+    while task.wait(0.5) do
+        if not AutoFarmDungeon then
+            FarmStatus = "Auto Farm desativado"
+            FarmStatusLabel:SetDesc(FarmStatus)
+            continue
+        end
+        
+        -- Verifica se está dentro de uma dungeon
+        local inDungeon = false
+        pcall(function()
+            local dungeonArenas = workspace:FindFirstChild("DungeonArenas")
+            if dungeonArenas then
+                -- Procura por qualquer arena de dungeon com pasta Enemies
+                for _, arena in ipairs(dungeonArenas:GetChildren()) do
+                    if arena:FindFirstChild("Enemies") then
+                        inDungeon = true
+                        break
+                    end
+                end
+            end
+        end)
+        
+        if not inDungeon then
+            FarmStatus = "Aguardando entrada na Dungeon..."
+            FarmStatusLabel:SetDesc(FarmStatus)
+            continue
+        end
+        
+        -- Está dentro da dungeon, procura NPCs
+        local npcs = findDungeonNPCs()
+        
+        if #npcs == 0 then
+            FarmStatus = "Dentro da Dungeon, mas nenhum NPC (Joker/Sho) encontrado."
+            FarmStatusLabel:SetDesc(FarmStatus)
+            task.wait(2)
+            continue
+        end
+        
+        -- Teleporta para cada NPC encontrado
+        for _, npc in ipairs(npcs) do
+            if not AutoFarmDungeon then
+                break
+            end
+            
+            FarmStatus = string.format("Farmando: %s", npc.name)
+            FarmStatusLabel:SetDesc(FarmStatus)
+            
+            local teleported = teleportToNPC(npc)
+            if teleported then
+                -- Aguarda um momento no NPC antes de procurar o próximo
+                task.wait(FarmCooldown)
+            end
+        end
+    end
+end
+
+-- Interface do Auto Farm Dungeon
+Tabs.Gamemodes:AddToggle("AutoFarmDungeonToggle", {
+    Title = "Ativar Auto Farm Dungeon",
+    Default = false,
+    Callback = function(state)
+        if not KeyPassed then
+            AutoFarmDungeon = false
+            Fluent:Notify({
+                Title = "Key necessária",
+                Content = "Digite a key primeiro.",
+                Duration = 3
+            })
+            return
+        end
+        
+        AutoFarmDungeon = state
+        FarmStatus = state and "Auto Farm ativado. Aguardando Dungeon..." or "Auto Farm desativado"
+        FarmStatusLabel:SetDesc(FarmStatus)
+        
+        if state then
+            Fluent:Notify({
+                Title = "Auto Farm ativado",
+                Content = "Teleportará para Joker/Sho ao entrar na Dungeon.",
+                Duration = 3
+            })
+            -- Inicia o loop em uma nova thread
+            task.spawn(farmDungeonLoop)
+        end
+    end
+})
+
+Tabs.Gamemodes:AddSlider("FarmRadiusSlider", {
+    Title = "Raio de detecção (distância)",
+    Description = "Máximo: 100 (não usado atualmente, mas disponível para lógica futura)",
+    Min = 10,
+    Max = 100,
+    Default = 50,
+    Rounding = 0,
+    Callback = function(value)
+        FarmRadius = value
+        FarmStatusLabel:SetDesc(string.format("Raio ajustado: %d | %s", FarmRadius, FarmStatus))
+    end
+})
+
+Tabs.Gamemodes:AddSlider("FarmCooldownSlider", {
+    Title = "Cooldown entre teleportes (s)",
+    Min = 0.5,
+    Max = 5,
+    Default = 1.5,
+    Rounding = 0.1,
+    Callback = function(value)
+        FarmCooldown = value
+        FarmStatusLabel:SetDesc(string.format("Cooldown: %.1fs | %s", FarmCooldown, FarmStatus))
+    end
+})
+
+-- Botão para teste manual
+Tabs.Gamemodes:AddButton({
+    Title = "🔍 Verificar NPCs agora (Manual)",
+    Description = "Procura Joker/Sho no ClientEnemyVisuals e mostra status.",
+    Callback = function()
+        if not KeyPassed then
+            Fluent:Notify({
+                Title = "Key necessária",
+                Content = "Digite a key primeiro.",
+                Duration = 3
+            })
+            return
+        end
+        
+        local npcs = findDungeonNPCs()
+        if #npcs > 0 then
+            local msg = ""
+            for _, npc in ipairs(npcs) do
+                msg = msg .. string.format("- %s (pos: %s)\n", npc.name, tostring(npc.position))
+            end
+            FarmStatusLabel:SetDesc(string.format("NPCs encontrados (%d):\n%s", #npcs, msg))
+            Fluent:Notify({
+                Title = "NPCs encontrados",
+                Content = string.format("%d NPC(s) localizado(s).", #npcs),
+                Duration = 4
+            })
+        else
+            FarmStatusLabel:SetDesc("Nenhum NPC (Joker/Sho) encontrado no ClientEnemyVisuals.")
+            Fluent:Notify({
+                Title = "NPCs não encontrados",
+                Content = "Verifique se está dentro da Dungeon.",
+                Duration = 4
+            })
+        end
+    end
+})
+
+
 -- ========== LOOP PRINCIPAL DO AUTO DUNGEON ==========
 local lastEmptyTime = tick()
 task.spawn(function() while task.wait(0.03) do
