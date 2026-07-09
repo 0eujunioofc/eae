@@ -8,7 +8,7 @@ local RunService = game:GetService("RunService")
 local LocalPlayer = Players.LocalPlayer
 
 -- Carregar Fluent UI
-local Fluent = loadstring(game:HttpGet("https://raw.githubusercontent.com/0eujunioofc/eae/refs/heads/main/junio.lua"))()
+local Fluent = loadstring(game:HttpGet("[raw.githubusercontent.com](https://raw.githubusercontent.com/0eujunioofc/eae/refs/heads/main/junio.lua)"))()
 
 local Window = Fluent:CreateWindow({
     Title = 'BR Anime Astral PRO',
@@ -100,6 +100,10 @@ local SelectedGateRanks = { C = true }
 local SelectedGateWorld = 5
 local GateAutomationEnabled = false
 
+-- NOVAS VARIÁVEIS: AUTO RAIDSTATION
+local AutoRaidStationEnabled = false
+local AutoRaidStationInterval = 2.0
+
 -- VARIÁVEIS DO AUTO JOIN
 local AutoJoinEnabled = false
 local JoinDetectionInterval = 1.0
@@ -123,7 +127,7 @@ local currentTarget = "Nenhum"
 local StatusArise, GateStatus, JoinStatus, BallStatus, StatusLabel
 
 -- DISCORD
-local DISCORD_URL = "https://discord.gg/czmYtNf8wf"
+local DISCORD_URL = "[discord.gg](https://discord.gg/czmYtNf8wf)"
 
 Tabs.Updates:AddButton({
     Title = "Join Discord Server",
@@ -270,20 +274,20 @@ end
 local function autoJoinLoop()
     while task.wait(JoinDetectionInterval) do
         if not AutoJoinEnabled then
-            JoinStatus:SetDesc("Auto Join desativado")
+            if JoinStatus then JoinStatus:SetDesc("Auto Join desativado") end
             continue
         end
         
-        JoinStatus:SetDesc("Procurando botões JOIN...")
+        if JoinStatus then JoinStatus:SetDesc("Procurando botões JOIN...") end
         
         local joinButtons = findJoinButtons()
         if #joinButtons > 0 then
-            JoinStatus:SetDesc("✅ " .. #joinButtons .. " botões JOIN encontrados")
+            if JoinStatus then JoinStatus:SetDesc("✅ " .. #joinButtons .. " botões JOIN encontrados") end
             
             for _, button in ipairs(joinButtons) do
                 if not AutoJoinEnabled then break end
                 
-                JoinStatus:SetDesc("Clicando no botão JOIN...")
+                if JoinStatus then JoinStatus:SetDesc("Clicando no botão JOIN...") end
                 local clicked = robustClickObject(button)
                 
                 if clicked then
@@ -292,13 +296,13 @@ local function autoJoinLoop()
                         Content = "Entrando no servidor...",
                         Duration = 3
                     })
-                    JoinStatus:SetDesc("✅ JOIN realizado - aguardando carregamento")
+                    if JoinStatus then JoinStatus:SetDesc("✅ JOIN realizado - aguardando carregamento") end
                     task.wait(3)
                     break
                 end
             end
         else
-            JoinStatus:SetDesc("❌ Nenhum botão JOIN encontrado")
+            if JoinStatus then JoinStatus:SetDesc("❌ Nenhum botão JOIN encontrado") end
         end
     end
 end
@@ -327,7 +331,6 @@ end
 
 -- ========== VERIFY GATE ENTRY ATUALIZADA ==========
 local function verifyGateEntry()
-    -- Dentro de uma Raid ativa (padrão antigo)
     local raidArenas = workspace:FindFirstChild("RaidArenas")
     if raidArenas then
         for _, world in ipairs(raidArenas:GetChildren()) do
@@ -338,7 +341,6 @@ local function verifyGateEntry()
         end
     end
     
-    -- Checagem baseada no World selecionado
     local raidStation = getRaidStationForWorld(SelectedGateWorld)
     if raidStation then
         local wFolder = workspace:FindFirstChild("Worlds")
@@ -375,13 +377,11 @@ local function findAndActivateSpawnGate()
     local pos = partCenter(raidStation)
     if not pos then return false end
     
-    -- Teleporta o player pro centro da estação
     if not teleportToPosition(pos + Vector3.new(0, 3, 0)) then
         return false
     end
     task.wait(0.25)
     
-    -- 1) Tenta TouchInterest (físico)
     local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
     local touchPart = raidStation:IsA("BasePart") and raidStation or raidStation:FindFirstChildWhichIsA("BasePart", true)
     if hrp and touchPart and touchPart:FindFirstChildOfClass("TouchInterest") then
@@ -393,7 +393,6 @@ local function findAndActivateSpawnGate()
         task.wait(0.15)
     end
     
-    -- 2) Tenta qualquer ProximityPrompt
     local prox = raidStation:FindFirstChildOfClass("ProximityPrompt") or touchPart and touchPart:FindFirstChildOfClass("ProximityPrompt")
     if prox then
         pcall(function()
@@ -402,7 +401,6 @@ local function findAndActivateSpawnGate()
         task.wait(0.1)
     end
     
-    -- 3) Fallback: clica no Gui da RaidStation
     local guiObj = raidStation:FindFirstChild("Gui")
     if guiObj then
         for _, d in ipairs(guiObj:GetDescendants()) do
@@ -439,7 +437,6 @@ local function clickYesInCurrentGateNotify()
                 if text:lower():find("gate") then
                     local actions = card:FindFirstChild("Actions")
                     if actions then
-                        -- Primeiro tenta encontrar botões com nomes específicos
                         local yesButtons = {
                             actions:FindFirstChild("YES"),
                             actions:FindFirstChild("Yes"),
@@ -455,7 +452,6 @@ local function clickYesInCurrentGateNotify()
                                         Content = "Gate aceito com sucesso!",
                                         Duration = 3
                                     })
-                                    -- Follow-up: tenta acionar a estação se necessário
                                     task.spawn(function()
                                         task.wait(0.6)
                                         if not verifyGateEntry() then
@@ -467,7 +463,6 @@ local function clickYesInCurrentGateNotify()
                             end
                         end
                         
-                        -- Procurar por qualquer botão que contenha "yes" no nome ou texto
                         for _, child in ipairs(actions:GetDescendants()) do
                             if (child:IsA("TextButton") or child:IsA("ImageButton")) then
                                 local childName = (child.Name or ""):lower()
@@ -481,7 +476,6 @@ local function clickYesInCurrentGateNotify()
                                             Content = "Gate aceito com sucesso!",
                                             Duration = 3
                                         })
-                                        -- Follow-up: tenta acionar a estação se necessário
                                         task.spawn(function()
                                             task.wait(0.6)
                                             if not verifyGateEntry() then
@@ -523,7 +517,6 @@ local function scanCurrentGates()
                 continue
             end
 
-            -- Capturar Rank e World
             local rank = (text:match("[Rr]ank%s*([SABCDEF])")) or (text:match("Rank:()%s*([SABCDEF])"))
             local worldNum = text:match("[Ww]orld%s*(%d+)")
             
@@ -533,7 +526,6 @@ local function scanCurrentGates()
 
             GateStatus:SetDesc(("⚡ Gate encontrado: Rank %s | World %s"):format(rank, worldNum))
             
-            -- Filtro estrito
             local worldOk = (tonumber(worldNum) == tonumber(SelectedGateWorld))
             local rankOk = isGateRankSelected(rank)
             
@@ -543,7 +535,6 @@ local function scanCurrentGates()
                 continue
             end
             
-            -- Gate elegível: notificar
             Fluent:Notify({
                 Title = "⚡ GATE ELEGÍVEL",
                 Content = ("Rank %s | World %s"):format(rank, worldNum),
@@ -553,14 +544,12 @@ local function scanCurrentGates()
             if GateAutomationEnabled then
                 task.wait(0.4)
                 
-                -- 1ª tentativa: clicar YES diretamente no card
                 local clicked = clickYesInCurrentGateNotify()
                 if clicked then
                     GateStatus:SetDesc(("✅ Gate Rank %s aceito automaticamente!"):format(rank))
                     return
                 end
                 
-                -- Fallback: usar sistema de ativação de spawn gate
                 local spawnActivated = findAndActivateSpawnGate()
                 if spawnActivated then
                     GateStatus:SetDesc(("✅ SpawnGate ativado via RaidStation (Rank %s | World %s)"):format(rank, worldNum))
@@ -590,7 +579,6 @@ local function setupGateDetector()
             end
         end)
         
-        -- Monitorar mudanças de visibilidade
         for _, card in ipairs(notifyRoot:GetChildren()) do
             if card.Name:match("^Notify_Raid_") then
                 card:GetPropertyChangedSignal("Visible"):Connect(function()
@@ -602,6 +590,27 @@ local function setupGateDetector()
                     end
                 end)
             end
+        end
+    end
+end
+
+-- LOOP AUTOMÁTICO: RAIDSTATION (novo)
+local function autoRaidStationLoop()
+    while task.wait(AutoRaidStationInterval) do
+        if not AutoRaidStationEnabled then
+            continue
+        end
+        if not KeyPassed then
+            AutoRaidStationEnabled = false
+            GateStatus:SetDesc("Digite a key primeiro.")
+            break
+        end
+
+        local ok = findAndActivateSpawnGate()
+        if ok then
+            GateStatus:SetDesc("✅ Estação acionada (loop)")
+        else
+            GateStatus:SetDesc("⏳ Tentando acionar a RaidStation...")
         end
     end
 end
@@ -691,61 +700,38 @@ Tabs.Gate:AddToggle("GateAutomationToggle", {
     end
 })
 
-Tabs.Gate:AddButton({
-    Title = "🔍 Verificar Gate Atual",
-    Description = "Verifica se você está dentro de algum Gate",
-    Callback = function()
-        if verifyGateEntry() then
-            GateStatus:SetDesc("✅ Dentro de um Gate ativo")
-        else
-            GateStatus:SetDesc("❌ Fora do modo Gate")
-        end
-    end
-})
-
-Tabs.Gate:AddButton({
-    Title = "🖱️ Testar Click YES (Manual)",
-    Description = "Tenta clicar no botão YES do Gate atual manualmente",
-    Callback = function()
-        local success = clickYesInCurrentGateNotify()
-        if success then
-            GateStatus:SetDesc("✅ Click YES realizado com sucesso")
-        else
-            GateStatus:SetDesc("❌ Não foi possível clicar no YES")
-        end
-    end
-})
-
-Tabs.Gate:AddButton({
-    Title = "🔄 Scanear Gates Agora",
-    Description = "Força uma verificação imediata de Gates",
-    Callback = function()
-        if AutoGateEnabled then
-            scanCurrentGates()
-        else
-            Fluent:Notify({
-                Title = "Atenção",
-                Content = "Ative o detector de Gates primeiro",
-                Duration = 3
-            })
-        end
-    end
-})
-
-Tabs.Gate:AddButton({
-    Title = "➡️ Ir até a RaidStation",
-    Description = "Teleporta e tenta ativar a estação do World selecionado",
-    Callback = function()
+-- NOVO: Toggle Auto RaidStation (substitui o botão antigo)
+Tabs.Gate:AddToggle("AutoRaidStationToggle", {
+    Title = "Ir até a RaidStation (Automático)",
+    Description = "Teleporta/aciona periodicamente a estação do World selecionado",
+    Default = false,
+    Callback = function(state)
         if not KeyPassed then
+            AutoRaidStationEnabled = false
             Fluent:Notify({
                 Title = "Key necessária",
                 Content = "Digite a key primeiro.",
                 Duration = 3
             })
+            GateStatus:SetDesc("Digite a key primeiro.")
             return
         end
-        local ok = findAndActivateSpawnGate()
-        GateStatus:SetDesc(ok and "✅ Estação acionada" or "❌ Não foi possível acionar a estação")
+        AutoRaidStationEnabled = state
+        if state then
+            GateStatus:SetDesc("⏳ Iniciando loop da RaidStation...")
+            task.spawn(autoRaidStationLoop)
+        else
+            GateStatus:SetDesc("Auto RaidStation desativado.")
+        end
+    end
+})
+
+-- Slider para controlar a frequência do Auto RaidStation
+Tabs.Gate:AddSlider("AutoRaidStationInterval", {
+    Title = "Intervalo RaidStation (s)",
+    Min = 0.5, Max = 10, Default = 2.0, Rounding = 1,
+    Callback = function(v)
+        AutoRaidStationInterval = v
     end
 })
 
@@ -1267,9 +1253,9 @@ task.spawn(function()
 end)
 
 -- ========== INICIALIZAÇÃO ==========
--- Iniciar todos os loops
 task.spawn(collectionLoop) -- Auto Ball
 task.spawn(startAriseSystem) -- Auto Arise
+task.spawn(autoJoinLoop) -- Auto Join
 
 Window:SelectTab(2)
 Fluent:Notify({
