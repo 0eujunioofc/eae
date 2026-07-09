@@ -303,16 +303,52 @@ local function autoJoinLoop()
     end
 end
 
--- ========== SISTEMA DE AUTO GATE ==========
+-- ========== FUNÇÕES AUXILIARES PARA WORLDS ==========
+local function getRaidStationForWorld(worldNumber)
+    local worlds = workspace:FindFirstChild("Worlds")
+    if not worlds then return nil end
+    local worldFolder = worlds:FindFirstChild(tostring(worldNumber))
+    if not worldFolder then return nil end
+    local systems = worldFolder:FindFirstChild("Systems")
+    if not systems then return nil end
+    local raidStation = systems:FindFirstChild("RaidStation")
+    return raidStation
+end
+
+local function partCenter(inst)
+    if inst:IsA("BasePart") then return inst.Position 
+    elseif inst:IsA("Model") and inst.PrimaryPart then return inst.PrimaryPart.Position
+    elseif inst:IsA("Model") then 
+        local pp = inst:FindFirstChildWhichIsA("BasePart", true)
+        return pp and pp.Position or nil
+    end
+    return nil
+end
+
+-- ========== VERIFY GATE ENTRY ATUALIZADA ==========
 local function verifyGateEntry()
+    -- Dentro de uma Raid ativa (padrão antigo)
     local raidArenas = workspace:FindFirstChild("RaidArenas")
-    if not raidArenas then return false end
+    if raidArenas then
+        for _, world in ipairs(raidArenas:GetChildren()) do
+            local enemies = world:FindFirstChild("Enemies")
+            if enemies then
+                return true
+            end
+        end
+    end
     
-    local world5 = raidArenas:FindFirstChild("World5")
-    if not world5 then return false end
+    -- Checagem baseada no World selecionado
+    local raidStation = getRaidStationForWorld(SelectedGateWorld)
+    if raidStation then
+        local wFolder = workspace:FindFirstChild("Worlds")
+        local curWorld = wFolder and wFolder:FindFirstChild(tostring(SelectedGateWorld))
+        if curWorld and (curWorld:FindFirstChild("SpawnGate") or curWorld:FindFirstChild("Teleporter")) then
+            return true
+        end
+    end
     
-    local enemies = world5:FindFirstChild("Enemies")
-    return enemies ~= nil
+    return false
 end
 
 local function isGateRankSelected(rank)
@@ -331,7 +367,61 @@ local function selectedRanksText()
     return table.concat(list, ", ")
 end
 
--- FUNÇÃO CORRIGIDA PARA CLICAR YES AUTOMATICAMENTE
+-- ========== FIND AND ACTIVATE SPAWN GATE ATUALIZADA ==========
+local function findAndActivateSpawnGate()
+    local raidStation = getRaidStationForWorld(SelectedGateWorld)
+    if not raidStation then return false end
+    
+    local pos = partCenter(raidStation)
+    if not pos then return false end
+    
+    -- Teleporta o player pro centro da estação
+    if not teleportToPosition(pos + Vector3.new(0, 3, 0)) then
+        return false
+    end
+    task.wait(0.25)
+    
+    -- 1) Tenta TouchInterest (físico)
+    local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    local touchPart = raidStation:IsA("BasePart") and raidStation or raidStation:FindFirstChildWhichIsA("BasePart", true)
+    if hrp and touchPart and touchPart:FindFirstChildOfClass("TouchInterest") then
+        pcall(function()
+            firetouchinterest(hrp, touchPart, 0)
+            task.wait(0.05)
+            firetouchinterest(hrp, touchPart, 1)
+        end)
+        task.wait(0.15)
+    end
+    
+    -- 2) Tenta qualquer ProximityPrompt
+    local prox = raidStation:FindFirstChildOfClass("ProximityPrompt") or touchPart and touchPart:FindFirstChildOfClass("ProximityPrompt")
+    if prox then
+        pcall(function()
+            fireproximityprompt(prox)
+        end)
+        task.wait(0.1)
+    end
+    
+    -- 3) Fallback: clica no Gui da RaidStation
+    local guiObj = raidStation:FindFirstChild("Gui")
+    if guiObj then
+        for _, d in ipairs(guiObj:GetDescendants()) do
+            if d:IsA("TextButton") or d:IsA("ImageButton") then
+                local nm = (d.Name or ""):lower()
+                local tx = (d.Text or ""):lower()
+                if nm:find("yes") or nm:find("confirm") or tx:find("yes") or tx:find("confirm") then
+                    if robustClickObject(d) then
+                        return true
+                    end
+                end
+            end
+        end
+    end
+    
+    return verifyGateEntry()
+end
+
+-- ========== CLICK YES IN CURRENT GATE NOTIFY ATUALIZADA ==========
 local function clickYesInCurrentGateNotify()
     if not ensureCharacterAlive() then return false end
     
@@ -346,64 +436,60 @@ local function clickYesInCurrentGateNotify()
             local description = card:FindFirstChild("Description")
             if description and description:IsA("TextLabel") then
                 local text = description.Text or ""
-                
-                -- Verificar se é um Gate
-                if not text:lower():find("gate") then
-                    continue
-                end
-                
-                -- Extrair rank e world
-                local rank = text:match("[Rr]ank%s*([SABCDEF])")
-                local worldNum = text:match("[Ww]orld%s*(%d+)")
-                
-                if not (rank and worldNum) then
-                    continue
-                end
-                
-                -- Aplicar filtro estrito
-                if not (isGateRankSelected(rank) and tonumber(worldNum) == tonumber(SelectedGateWorld)) then
-                    continue
-                end
-                
-                -- Encontrar e clicar no botão YES
-                local actions = card:FindFirstChild("Actions")
-                if actions then
-                    -- Primeiro tenta encontrar botões com nomes específicos
-                    local yesButtons = {
-                        actions:FindFirstChild("YES"),
-                        actions:FindFirstChild("Yes"),
-                        actions:FindFirstChild("CONFIRM"),
-                        actions:FindFirstChild("Confirm")
-                    }
-                    
-                    for _, btn in ipairs(yesButtons) do
-                        if btn and (btn:IsA("TextButton") or btn:IsA("ImageButton")) then
-                            if robustClickObject(btn) then
-                                Fluent:Notify({
-                                    Title = "✅ YES clicado automaticamente",
-                                    Content = "Gate aceito com sucesso!",
-                                    Duration = 3
-                                })
-                                return true
-                            end
-                        end
-                    end
-                    
-                    -- Procurar por qualquer botão que contenha "yes" no nome ou texto
-                    for _, child in ipairs(actions:GetDescendants()) do
-                        if (child:IsA("TextButton") or child:IsA("ImageButton")) then
-                            local childName = (child.Name or ""):lower()
-                            local childText = (child.Text or ""):lower()
-                            
-                            if childName:find("yes") or childText:find("yes") or 
-                               childName:find("confirm") or childText:find("confirm") then
-                                if robustClickObject(child) then
+                if text:lower():find("gate") then
+                    local actions = card:FindFirstChild("Actions")
+                    if actions then
+                        -- Primeiro tenta encontrar botões com nomes específicos
+                        local yesButtons = {
+                            actions:FindFirstChild("YES"),
+                            actions:FindFirstChild("Yes"),
+                            actions:FindFirstChild("CONFIRM"),
+                            actions:FindFirstChild("Confirm")
+                        }
+                        
+                        for _, btn in ipairs(yesButtons) do
+                            if btn and (btn:IsA("TextButton") or btn:IsA("ImageButton")) then
+                                if robustClickObject(btn) then
                                     Fluent:Notify({
-                                        Title = "✅ Botão clicado automaticamente",
+                                        Title = "✅ YES clicado automaticamente",
                                         Content = "Gate aceito com sucesso!",
                                         Duration = 3
                                     })
+                                    -- Follow-up: tenta acionar a estação se necessário
+                                    task.spawn(function()
+                                        task.wait(0.6)
+                                        if not verifyGateEntry() then
+                                            findAndActivateSpawnGate()
+                                        end
+                                    end)
                                     return true
+                                end
+                            end
+                        end
+                        
+                        -- Procurar por qualquer botão que contenha "yes" no nome ou texto
+                        for _, child in ipairs(actions:GetDescendants()) do
+                            if (child:IsA("TextButton") or child:IsA("ImageButton")) then
+                                local childName = (child.Name or ""):lower()
+                                local childText = (child.Text or ""):lower()
+                                
+                                if childName:find("yes") or childText:find("yes") or 
+                                   childName:find("confirm") or childText:find("confirm") then
+                                    if robustClickObject(child) then
+                                        Fluent:Notify({
+                                            Title = "✅ Botão clicado automaticamente",
+                                            Content = "Gate aceito com sucesso!",
+                                            Duration = 3
+                                        })
+                                        -- Follow-up: tenta acionar a estação se necessário
+                                        task.spawn(function()
+                                            task.wait(0.6)
+                                            if not verifyGateEntry() then
+                                                findAndActivateSpawnGate()
+                                            end
+                                        end)
+                                        return true
+                                    end
                                 end
                             end
                         end
@@ -415,7 +501,7 @@ local function clickYesInCurrentGateNotify()
     return false
 end
 
--- FUNÇÃO MELHORADA PARA SCANEAR GATES (COM FALLBACKS ADICIONADOS)
+-- FUNÇÃO MELHORADA PARA SCANEAR GATES
 local function scanCurrentGates()
     if not AutoGateEnabled then return end
 
@@ -474,58 +560,12 @@ local function scanCurrentGates()
                     return
                 end
                 
-                -- FALLBACK 1: Teleportar para o Spawn do world alvo
-                local teleOk = false
-                pcall(function()
-                    local spawn = workspace:FindFirstChild("Worlds") 
-                        and workspace.Worlds:FindFirstChild(tostring(worldNum))
-                        and workspace.Worlds[tostring(worldNum)]:FindFirstChild("Spawn")
-                    
-                    if spawn and spawn:IsA("BasePart") then
-                        teleOk = teleportToPosition(spawn.Position)
-                    end
-                end)
-                
-                if teleOk then
-                    task.wait(0.5)
-                    
-                    -- FALLBACK 2: Ativar RaidStation daquele world
-                    pcall(function()
-                        local worlds = workspace:FindFirstChild("Worlds")
-                        if not worlds then return end
-                        
-                        local targetWorld = worlds:FindFirstChild(tostring(worldNum))
-                        if not targetWorld then return end
-                        
-                        local systems = targetWorld:FindFirstChild("Systems")
-                        if not systems then return end
-                        
-                        local raidStation = systems:FindFirstChild("RaidStation")
-                        if not raidStation then return end
-                        
-                        -- Tentar ProximityPrompt primeiro
-                        local proximityPrompt = raidStation:FindFirstChildOfClass("ProximityPrompt")
-                        if proximityPrompt then
-                            fireproximityprompt(proximityPrompt)
-                            GateStatus:SetDesc(("✅ Portal ativado via ProximityPrompt (Rank %s | World %s)"):format(rank, worldNum))
-                        else
-                            -- Fallback para TouchInterest
-                            local touchInterest = raidStation:FindFirstChildOfClass("TouchInterest")
-                            if touchInterest then
-                                local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-                                if hrp then
-                                    firetouchinterest(hrp, raidStation, 0)
-                                    task.wait(0.05)
-                                    firetouchinterest(hrp, raidStation, 1)
-                                    GateStatus:SetDesc(("✅ Portal ativado via TouchInterest (Rank %s | World %s)"):format(rank, worldNum))
-                                end
-                            else
-                                GateStatus:SetDesc("⚠️ RaidStation encontrado mas sem Prompt/TouchInterest")
-                            end
-                        end
-                    end)
+                -- Fallback: usar sistema de ativação de spawn gate
+                local spawnActivated = findAndActivateSpawnGate()
+                if spawnActivated then
+                    GateStatus:SetDesc(("✅ SpawnGate ativado via RaidStation (Rank %s | World %s)"):format(rank, worldNum))
                 else
-                    GateStatus:SetDesc("⚠️ Falha ao teleportar para o Spawn do world alvo")
+                    GateStatus:SetDesc("⚠️ Falha ao ativar o gate através do spawn")
                 end
             else
                 GateStatus:SetDesc("⚠️ Gate elegível - clique YES manualmente (automação OFF)")
@@ -544,7 +584,7 @@ local function setupGateDetector()
         notifyRoot.ChildAdded:Connect(function(card)
             if card.Name:match("^Notify_Raid_") then
                 task.spawn(function()
-                    task.wait(0.3) -- Aguarda a animação da notificação
+                    task.wait(0.3)
                     scanCurrentGates()
                 end)
             end
@@ -655,24 +695,8 @@ Tabs.Gate:AddButton({
     Title = "🔍 Verificar Gate Atual",
     Description = "Verifica se você está dentro de algum Gate",
     Callback = function()
-        local raidArenas = workspace:FindFirstChild("RaidArenas")
-        if not raidArenas then
-            GateStatus:SetDesc("❌ Fora do modo Raid/Gate")
-            return
-        end
-        
-        local activeGates = {}
-        for _, world in ipairs(raidArenas:GetChildren()) do
-            if world:IsA("Folder") or world:IsA("Model") then
-                local enemies = world:FindFirstChild("Enemies")
-                if enemies then
-                    table.insert(activeGates, world.Name)
-                end
-            end
-        end
-        
-        if #activeGates > 0 then
-            GateStatus:SetDesc("✅ Dentro do Gate: " .. table.concat(activeGates, ", "))
+        if verifyGateEntry() then
+            GateStatus:SetDesc("✅ Dentro de um Gate ativo")
         else
             GateStatus:SetDesc("❌ Fora do modo Gate")
         end
@@ -705,6 +729,23 @@ Tabs.Gate:AddButton({
                 Duration = 3
             })
         end
+    end
+})
+
+Tabs.Gate:AddButton({
+    Title = "➡️ Ir até a RaidStation",
+    Description = "Teleporta e tenta ativar a estação do World selecionado",
+    Callback = function()
+        if not KeyPassed then
+            Fluent:Notify({
+                Title = "Key necessária",
+                Content = "Digite a key primeiro.",
+                Duration = 3
+            })
+            return
+        end
+        local ok = findAndActivateSpawnGate()
+        GateStatus:SetDesc(ok and "✅ Estação acionada" or "❌ Não foi possível acionar a estação")
     end
 })
 
