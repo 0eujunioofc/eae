@@ -8,7 +8,30 @@ local RunService = game:GetService("RunService")
 local LocalPlayer = Players.LocalPlayer
 
 -- Carregar Fluent UI
-local Fluent = loadstring(game:HttpGet("https://raw.githubusercontent.com/0eujunioofc/eae/main/junio.lua"))()
+local FLUENT_URL = "https://raw.githubusercontent.com/0eujunioofc/eae/main/junio.lua"
+
+local okHttp, source = pcall(function()
+    return game:HttpGet(FLUENT_URL)
+end)
+
+if not okHttp or type(source) ~= "string" or source == "" then
+    warn("Erro ao baixar Fluent:", source)
+    return
+end
+
+local fluentFunc, loadErr = loadstring(source)
+
+if not fluentFunc then
+    warn("Erro no loadstring do Fluent:", loadErr)
+    return
+end
+
+local okFluent, Fluent = pcall(fluentFunc)
+
+if not okFluent or not Fluent then
+    warn("Fluent não carregou:", Fluent)
+    return
+end
 
 local Window = Fluent:CreateWindow({ Title = 'BR Anime Astral PRO', SubTitle = "eujunioofc", TabWidth = 160, Size = UDim2.fromOffset(550, 450), Acrylic = false, Theme = "Dark", MinimizeKey = Enum.KeyCode.LeftControl, })
 
