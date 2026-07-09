@@ -686,71 +686,6 @@ Tabs.Gate:AddButton({
 })
 
 
--- ========== INTERFACE DO AUTO JOIN DO GATE ==========
-AddAutoJoinSection()
-
-Tabs.AutoJoin:AddToggle("AutoJoinToggle", {
-    Title = "Ativar Auto Join",
-    Default = false,
-    Callback = function(state)
-        if not KeyPassed then
-            AutoJoinEnabled = false
-            Fluent:Notify({
-                Title = "Key necessária",
-                Content = "Digite a key primeiro.",
-                Duration = 3
-            })
-            return
-        end
-
-        AutoJoinEnabled = state
-        JoinStatus:SetDesc(state and "Auto Join ativado" or "Auto Join desativado")
-
-        if state then
-            Fluent:Notify({
-                Title = "Auto Join Ativado",
-                Content = "Procurando botões JOIN automaticamente",
-                Duration = 3
-            })
-        end
-    end
-})
-
-JoinStatus = Tabs.AutoJoin:AddParagraph({
-    Title = "Status do Auto Join",
-    Content = "Desativado"
-})
-
-Tabs.AutoJoin:AddSlider("JoinInterval", {
-    Title = "Intervalo de Verificação (segundos)",
-    Min = 0.5,
-    Max = 5,
-    Default = 1.0,
-    Rounding = 1,
-    Callback = function(value)
-        JoinDetectionInterval = value
-    end
-})
-
-Tabs.AutoJoin:AddButton({
-    Title = "🔍 Verificar JOIN Agora",
-    Description = "Procura por botões JOIN manualmente",
-    Callback = function()
-        local buttons = findJoinButtons()
-
-        if #buttons > 0 then
-            JoinStatus:SetDesc("✅ " .. #buttons .. " botões JOIN encontrados")
-            Fluent:Notify({
-                Title = "Verificação Manual",
-                Content = #buttons .. " botões JOIN encontrados",
-                Duration = 3
-            })
-        else
-            JoinStatus:SetDesc("❌ Nenhum botão JOIN encontrado")
-        end
-    end
-})
-
 -- ========== SISTEMA DE AUTO ARISE ==========
 local function getFullPath(obj)
     if not obj then return "N/A" end
@@ -1273,7 +1208,6 @@ end)
 -- ========== INICIALIZAÇÃO ==========
 -- Iniciar todos os loops
 task.spawn(collectionLoop) -- Auto Ball
-task.spawn(autoJoinLoop) -- Auto Join
 task.spawn(startAriseSystem) -- Auto Arise
 
 Window:SelectTab(2)
