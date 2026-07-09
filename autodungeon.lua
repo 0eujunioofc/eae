@@ -8,7 +8,7 @@ local RunService = game:GetService("RunService")
 local LocalPlayer = Players.LocalPlayer
 
 -- Carregar Fluent UI
-local Fluent = loadstring(game:HttpGet("https://raw.githubusercontent.com/0eujunioofc/eae/refs/heads/main/junio.lua"))()
+local Fluent = loadstring(game:HttpGet("[raw.githubusercontent.com](https://raw.githubusercontent.com/0eujunioofc/eae/refs/heads/main/junio.lua)"))()
 
 local Window = Fluent:CreateWindow({
     Title = 'BR Anime Astral PRO',
@@ -51,7 +51,6 @@ end
 -- Separador padrao dos modulos
 local function AddSection(tab, title, desc)
     AddSpace(tab)
-
     return tab:AddParagraph({
         Title = "========== " .. title .. " ==========",
         Content = desc or ""
@@ -60,7 +59,7 @@ end
 
 -- Separadores prontos para cada modulo
 local function AddGateSection()
-    return AddSection(Tabs.Gate, "AUTO GATE", "[FORA DO MODO] Detecta notificacoes de Gate.")
+    return AddSection(Tabs.Gate, "AUTO GATE", "[FORA DO MODO] Detecta notificacoes de Gate na hora e aceita 1 vez.")
 end
 
 local function AddAutoJoinSection()
@@ -100,10 +99,6 @@ local SelectedGateRanks = { C = true }
 local SelectedGateWorld = 5
 local GateAutomationEnabled = false
 
--- NOVAS VARIÁVEIS: AUTO RAIDSTATION
-local AutoRaidStationEnabled = false
-local AutoRaidStationInterval = 2.0
-
 -- VARIÁVEIS DO AUTO JOIN
 local AutoJoinEnabled = false
 local JoinDetectionInterval = 1.0
@@ -127,7 +122,7 @@ local currentTarget = "Nenhum"
 local StatusArise, GateStatus, JoinStatus, BallStatus, StatusLabel
 
 -- DISCORD
-local DISCORD_URL = "https://discord.gg/czmYtNf8wf"
+local DISCORD_URL = "[discord.gg](https://discord.gg/czmYtNf8wf)"
 
 Tabs.Updates:AddButton({
     Title = "Join Discord Server",
@@ -187,10 +182,9 @@ Tabs.Key:AddInput("KeyInput", {
 -- FUNÇÕES COMPARTILHADAS
 local function robustClickObject(obj)
     if not obj then return false end
-    
     local methods = {
         function() if typeof(fireclick) == "function" then fireclick(obj); return true end end,
-        function() 
+        function()
             if obj:IsA("TextButton") or obj:IsA("ImageButton") then
                 if typeof(firesignal) == "function" then
                     pcall(function() firesignal(obj.MouseButton1Click) end)
@@ -211,12 +205,10 @@ local function robustClickObject(obj)
             end
         end
     }
-    
     for _, method in ipairs(methods) do
-        local success = pcall(method)
-        if success then return true end
+        local ok, res = pcall(method)
+        if ok and res then return true end
     end
-    
     return false
 end
 
@@ -232,7 +224,6 @@ local function teleportToPosition(position)
     if not ensureCharacterAlive() then return false end
     local hrp = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
     if not hrp then return false end
-    
     pcall(function()
         hrp.CFrame = CFrame.new(position + Vector3.new(0, 3, 0))
     end)
@@ -242,32 +233,22 @@ end
 -- ========== SISTEMA DE AUTO JOIN ==========
 local function findJoinButtons()
     local joinButtons = {}
-    
-    local guiLocations = {
-        LocalPlayer.PlayerGui,
-        game:GetService("CoreGui")
-    }
-    
+    local guiLocations = { LocalPlayer.PlayerGui, game:GetService("CoreGui") }
     for _, gui in ipairs(guiLocations) do
         pcall(function()
-            local function scanDescendants(parent)
-                for _, child in ipairs(parent:GetDescendants()) do
-                    if child:IsA("TextButton") or child:IsA("ImageButton") then
-                        local text = child.Text or ""
-                        local name = child.Name or ""
-                        
-                        if text:lower():find("join") or name:lower():find("join") or
-                           text:lower():find("entrar") or name:lower():find("entrar") or
-                           text:lower():find("play") or name:lower():find("play") then
-                            table.insert(joinButtons, child)
-                        end
+            for _, child in ipairs(gui:GetDescendants()) do
+                if child:IsA("TextButton") or child:IsA("ImageButton") then
+                    local text = child.Text or ""
+                    local name = child.Name or ""
+                    if text:lower():find("join") or name:lower():find("join") or
+                       text:lower():find("entrar") or name:lower():find("entrar") or
+                       text:lower():find("play") or name:lower():find("play") then
+                        table.insert(joinButtons, child)
                     end
                 end
             end
-            scanDescendants(gui)
         end)
     end
-    
     return joinButtons
 end
 
@@ -277,19 +258,14 @@ local function autoJoinLoop()
             if JoinStatus then JoinStatus:SetDesc("Auto Join desativado") end
             continue
         end
-        
         if JoinStatus then JoinStatus:SetDesc("Procurando botões JOIN...") end
-        
         local joinButtons = findJoinButtons()
         if #joinButtons > 0 then
             if JoinStatus then JoinStatus:SetDesc("✅ " .. #joinButtons .. " botões JOIN encontrados") end
-            
             for _, button in ipairs(joinButtons) do
                 if not AutoJoinEnabled then break end
-                
                 if JoinStatus then JoinStatus:SetDesc("Clicando no botão JOIN...") end
                 local clicked = robustClickObject(button)
-                
                 if clicked then
                     Fluent:Notify({
                         Title = "✅ JOIN clicado",
@@ -320,16 +296,16 @@ local function getRaidStationForWorld(worldNumber)
 end
 
 local function partCenter(inst)
-    if inst:IsA("BasePart") then return inst.Position 
+    if inst:IsA("BasePart") then return inst.Position
     elseif inst:IsA("Model") and inst.PrimaryPart then return inst.PrimaryPart.Position
-    elseif inst:IsA("Model") then 
+    elseif inst:IsA("Model") then
         local pp = inst:FindFirstChildWhichIsA("BasePart", true)
         return pp and pp.Position or nil
     end
     return nil
 end
 
--- ========== VERIFY GATE ENTRY ATUALIZADA ==========
+-- ========== VERIFY GATE ENTRY ==========
 local function verifyGateEntry()
     local raidArenas = workspace:FindFirstChild("RaidArenas")
     if raidArenas then
@@ -340,7 +316,6 @@ local function verifyGateEntry()
             end
         end
     end
-    
     local raidStation = getRaidStationForWorld(SelectedGateWorld)
     if raidStation then
         local wFolder = workspace:FindFirstChild("Worlds")
@@ -349,7 +324,6 @@ local function verifyGateEntry()
             return true
         end
     end
-    
     return false
 end
 
@@ -369,19 +343,19 @@ local function selectedRanksText()
     return table.concat(list, ", ")
 end
 
--- ========== FIND AND ACTIVATE SPAWN GATE ATUALIZADA ==========
+-- ========== FIND AND ACTIVATE SPAWN GATE (chamado só no momento) ==========
 local function findAndActivateSpawnGate()
     local raidStation = getRaidStationForWorld(SelectedGateWorld)
     if not raidStation then return false end
-    
+
     local pos = partCenter(raidStation)
     if not pos then return false end
-    
+
     if not teleportToPosition(pos + Vector3.new(0, 3, 0)) then
         return false
     end
     task.wait(0.25)
-    
+
     local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
     local touchPart = raidStation:IsA("BasePart") and raidStation or raidStation:FindFirstChildWhichIsA("BasePart", true)
     if hrp and touchPart and touchPart:FindFirstChildOfClass("TouchInterest") then
@@ -392,7 +366,7 @@ local function findAndActivateSpawnGate()
         end)
         task.wait(0.15)
     end
-    
+
     local prox = raidStation:FindFirstChildOfClass("ProximityPrompt") or touchPart and touchPart:FindFirstChildOfClass("ProximityPrompt")
     if prox then
         pcall(function()
@@ -400,7 +374,7 @@ local function findAndActivateSpawnGate()
         end)
         task.wait(0.1)
     end
-    
+
     local guiObj = raidStation:FindFirstChild("Gui")
     if guiObj then
         for _, d in ipairs(guiObj:GetDescendants()) do
@@ -415,20 +389,20 @@ local function findAndActivateSpawnGate()
             end
         end
     end
-    
+
     return verifyGateEntry()
 end
 
--- ========== CLICK YES IN CURRENT GATE NOTIFY ATUALIZADA ==========
+-- ========== CLICK YES NA NOTIFICAÇÃO ATUAL ==========
 local function clickYesInCurrentGateNotify()
     if not ensureCharacterAlive() then return false end
-    
-    local notifyRoot = LocalPlayer.PlayerGui:FindFirstChild("HUD") 
-        and LocalPlayer.PlayerGui.HUD:FindFirstChild("Main") 
+
+    local notifyRoot = LocalPlayer.PlayerGui:FindFirstChild("HUD")
+        and LocalPlayer.PlayerGui.HUD:FindFirstChild("Main")
         and LocalPlayer.PlayerGui.HUD.Main:FindFirstChild("GamemodeNotify")
-    
+
     if not notifyRoot then return false end
-    
+
     for _, card in ipairs(notifyRoot:GetChildren()) do
         if card:IsA("GuiObject") and card.Name:match("^Notify_Raid_") and (card.Visible == true) then
             local description = card:FindFirstChild("Description")
@@ -443,13 +417,12 @@ local function clickYesInCurrentGateNotify()
                             actions:FindFirstChild("CONFIRM"),
                             actions:FindFirstChild("Confirm")
                         }
-                        
                         for _, btn in ipairs(yesButtons) do
                             if btn and (btn:IsA("TextButton") or btn:IsA("ImageButton")) then
                                 if robustClickObject(btn) then
                                     Fluent:Notify({
-                                        Title = "✅ YES clicado automaticamente",
-                                        Content = "Gate aceito com sucesso!",
+                                        Title = "✅ YES clicado",
+                                        Content = "Gate aceito.",
                                         Duration = 3
                                     })
                                     task.spawn(function()
@@ -462,18 +435,16 @@ local function clickYesInCurrentGateNotify()
                                 end
                             end
                         end
-                        
                         for _, child in ipairs(actions:GetDescendants()) do
                             if (child:IsA("TextButton") or child:IsA("ImageButton")) then
                                 local childName = (child.Name or ""):lower()
                                 local childText = (child.Text or ""):lower()
-                                
-                                if childName:find("yes") or childText:find("yes") or 
-                                   childName:find("confirm") or childText:find("confirm") then
+                                if childName:find("yes") or childText:find("yes")
+                                   or childName:find("confirm") or childText:find("confirm") then
                                     if robustClickObject(child) then
                                         Fluent:Notify({
-                                            Title = "✅ Botão clicado automaticamente",
-                                            Content = "Gate aceito com sucesso!",
+                                            Title = "✅ Botão confirmado",
+                                            Content = "Gate aceito.",
                                             Duration = 3
                                         })
                                         task.spawn(function()
@@ -495,14 +466,13 @@ local function clickYesInCurrentGateNotify()
     return false
 end
 
--- FUNÇÃO MELHORADA PARA SCANEAR GATES
+-- FUNÇÃO QUE LÊ APENAS QUANDO A NOTIFICAÇÃO APARECER
 local function scanCurrentGates()
     if not AutoGateEnabled then return end
 
     local success, notifyRoot = pcall(function()
         return LocalPlayer.PlayerGui:WaitForChild("HUD"):WaitForChild("Main"):WaitForChild("GamemodeNotify")
     end)
-
     if not success or not notifyRoot then return end
 
     for _, card in ipairs(notifyRoot:GetChildren()) do
@@ -517,39 +487,40 @@ local function scanCurrentGates()
                 continue
             end
 
-            local rank = (text:match("[Rr]ank%s*([SABCDEF])")) or (text:match("Rank:()%s*([SABCDEF])"))
+            -- Extrair Rank e World da mensagem
+            local rank = (text:match("[Rr]ank%s*([SABCDEF])"))
             local worldNum = text:match("[Ww]orld%s*(%d+)")
-            
+
             if not rank or not worldNum then
                 continue
             end
 
             GateStatus:SetDesc(("⚡ Gate encontrado: Rank %s | World %s"):format(rank, worldNum))
-            
+
             local worldOk = (tonumber(worldNum) == tonumber(SelectedGateWorld))
             local rankOk = isGateRankSelected(rank)
-            
+
             if not (rankOk and worldOk) then
                 GateStatus:SetDesc(("✗ Ignorado (Rank %s / World %s) - Filtro: Ranks [%s] | World %d")
                     :format(rank, worldNum, selectedRanksText(), SelectedGateWorld))
                 continue
             end
-            
+
             Fluent:Notify({
                 Title = "⚡ GATE ELEGÍVEL",
                 Content = ("Rank %s | World %s"):format(rank, worldNum),
                 Duration = 5
             })
-            
+
             if GateAutomationEnabled then
-                task.wait(0.4)
-                
+                -- AÇÃO ÚNICA no momento da notificação
+                task.wait(0.3)
                 local clicked = clickYesInCurrentGateNotify()
                 if clicked then
                     GateStatus:SetDesc(("✅ Gate Rank %s aceito automaticamente!"):format(rank))
                     return
                 end
-                
+                -- Fallback apenas agora
                 local spawnActivated = findAndActivateSpawnGate()
                 if spawnActivated then
                     GateStatus:SetDesc(("✅ SpawnGate ativado via RaidStation (Rank %s | World %s)"):format(rank, worldNum))
@@ -563,28 +534,28 @@ local function scanCurrentGates()
     end
 end
 
--- FUNÇÃO PARA DETECTAR NOVOS GATES
+-- Detector de novas notificações (sem loop de estação)
 local function setupGateDetector()
     local success, notifyRoot = pcall(function()
         return LocalPlayer.PlayerGui:WaitForChild("HUD"):WaitForChild("Main"):WaitForChild("GamemodeNotify")
     end)
-
     if success and notifyRoot then
+        -- Quando nascer uma notificação (ex.: 23:10, 23:20, ...)
         notifyRoot.ChildAdded:Connect(function(card)
             if card.Name:match("^Notify_Raid_") then
                 task.spawn(function()
-                    task.wait(0.3)
+                    task.wait(0.25)
                     scanCurrentGates()
                 end)
             end
         end)
-        
+        -- Quando ficar visível
         for _, card in ipairs(notifyRoot:GetChildren()) do
             if card.Name:match("^Notify_Raid_") then
                 card:GetPropertyChangedSignal("Visible"):Connect(function()
                     if card:IsA("GuiObject") and card.Visible then
                         task.spawn(function()
-                            task.wait(0.3)
+                            task.wait(0.25)
                             scanCurrentGates()
                         end)
                     end
@@ -594,28 +565,7 @@ local function setupGateDetector()
     end
 end
 
--- LOOP AUTOMÁTICO: RAIDSTATION (novo)
-local function autoRaidStationLoop()
-    while task.wait(AutoRaidStationInterval) do
-        if not AutoRaidStationEnabled then
-            continue
-        end
-        if not KeyPassed then
-            AutoRaidStationEnabled = false
-            GateStatus:SetDesc("Digite a key primeiro.")
-            break
-        end
-
-        local ok = findAndActivateSpawnGate()
-        if ok then
-            GateStatus:SetDesc("✅ Estação acionada (loop)")
-        else
-            GateStatus:SetDesc("⏳ Tentando acionar a RaidStation...")
-        end
-    end
-end
-
--- Interface do Gate MELHORADA
+-- Interface do Gate (sem Auto RaidStation em loop)
 AddGateSection()
 
 GateStatus = Tabs.Gate:AddParagraph({ Title = "Status do Gate", Content = "Pronto para detectar" })
@@ -638,7 +588,6 @@ Tabs.Gate:AddDropdown("GateRank", {
         elseif type(value) == "string" then
             SelectedGateRanks[value] = true
         end
-
         GateStatus:SetDesc("Ranks escolhidos: " .. selectedRanksText())
     end
 })
@@ -668,17 +617,16 @@ Tabs.Gate:AddToggle("AutoGateToggle", {
             })
             return
         end
-
         AutoGateEnabled = state
         GateStatus:SetDesc(state and ("Procurando Gates: " .. selectedRanksText()) or "Gate desativado")
-
         if state then
             Fluent:Notify({
                 Title = "Gate Detector Ativado",
-                Content = "Monitorando notificações de Gate...",
+                Content = "Aguardando o horário do spawn para notificação...",
                 Duration = 3
             })
             task.spawn(setupGateDetector)
+            -- Sem loop agressivo: apenas uma leitura inicial, depois só via eventos
             task.spawn(scanCurrentGates)
         end
     end
@@ -686,52 +634,17 @@ Tabs.Gate:AddToggle("AutoGateToggle", {
 
 Tabs.Gate:AddToggle("GateAutomationToggle", {
     Title = "Clique Automático no YES",
-    Description = "Clica automaticamente no botão YES quando encontrar um Gate (com fallbacks)",
+    Description = "Ao surgir a notificação no horário, clica YES 1 vez (com fallback).",
     Default = false,
     Callback = function(state)
         GateAutomationEnabled = state
         if state then
             Fluent:Notify({
                 Title = "Automação Ativada",
-                Content = "O sistema vai clicar no YES e usar fallbacks se necessário",
+                Content = "Aceitará o Gate somente quando notificado.",
                 Duration = 3
             })
         end
-    end
-})
-
--- NOVO: Toggle Auto RaidStation (substitui o botão antigo)
-Tabs.Gate:AddToggle("AutoRaidStationToggle", {
-    Title = "Ir até a RaidStation (Automático)",
-    Description = "Teleporta/aciona periodicamente a estação do World selecionado",
-    Default = false,
-    Callback = function(state)
-        if not KeyPassed then
-            AutoRaidStationEnabled = false
-            Fluent:Notify({
-                Title = "Key necessária",
-                Content = "Digite a key primeiro.",
-                Duration = 3
-            })
-            GateStatus:SetDesc("Digite a key primeiro.")
-            return
-        end
-        AutoRaidStationEnabled = state
-        if state then
-            GateStatus:SetDesc("⏳ Iniciando loop da RaidStation...")
-            task.spawn(autoRaidStationLoop)
-        else
-            GateStatus:SetDesc("Auto RaidStation desativado.")
-        end
-    end
-})
-
--- Slider para controlar a frequência do Auto RaidStation
-Tabs.Gate:AddSlider("AutoRaidStationInterval", {
-    Title = "Intervalo RaidStation (s)",
-    Min = 0.5, Max = 10, Default = 2.0, Rounding = 1,
-    Callback = function(v)
-        AutoRaidStationInterval = v
     end
 })
 
@@ -741,28 +654,23 @@ local function getFullPath(obj)
     local path = obj.Name
     local parent = obj.Parent
     local depth = 0
-    
     while parent and depth < 10 do
         path = parent.Name .. "." .. path
         parent = parent.Parent
         depth = depth + 1
     end
-    
     return path
 end
 
 local function scanAllArisePrompts(isManual)
     if not AutoAriseEnabled and not isManual then return {} end
-    
     local foundPrompts = {}
     local worldCount = 0
     AriseDetectionCount = 0
-    
     if not isManual then
         LastAriseEnemies = {}
         ActiveAriseWorlds = {}
     end
-    
     local raidArenas = workspace:FindFirstChild("RaidArenas")
     if not raidArenas then
         if isManual then
@@ -770,23 +678,18 @@ local function scanAllArisePrompts(isManual)
         end
         return foundPrompts
     end
-    
     for _, worldFolder in ipairs(raidArenas:GetChildren()) do
         if worldFolder:IsA("Folder") or worldFolder:IsA("Model") then
             local worldName = worldFolder.Name
             local enemiesFolder = worldFolder:FindFirstChild("Enemies")
-            
             if enemiesFolder then
                 worldCount = worldCount + 1
                 ActiveAriseWorlds[worldName] = true
-                
                 for _, enemy in ipairs(enemiesFolder:GetChildren()) do
                     if enemy:IsA("Model") then
                         local hrp = enemy:FindFirstChild("HumanoidRootPart")
-                        
                         if hrp then
                             local arisePrompt = hrp:FindFirstChild("ArisePrompt")
-                            
                             if arisePrompt and arisePrompt:IsA("ProximityPrompt") then
                                 local promptInfo = {
                                     enemyName = enemy.Name,
@@ -801,7 +704,6 @@ local function scanAllArisePrompts(isManual)
                                     activatedCount = 0,
                                     chances = 3
                                 }
-                                
                                 local chancesText = promptInfo.objectText
                                 if chancesText then
                                     local chanceNumber = tonumber(chancesText:match("%d+"))
@@ -809,15 +711,12 @@ local function scanAllArisePrompts(isManual)
                                         promptInfo.chances = chanceNumber
                                     end
                                 end
-
                                 if promptInfo.chances <= 0 then
                                     continue
                                 end
-                                
                                 table.insert(foundPrompts, promptInfo)
                                 AriseDetectionCount = AriseDetectionCount + 1
                                 LastAriseEnemies[enemy.Name] = promptInfo
-                                
                                 if isManual or AutoAriseEnabled then
                                     local statusMsg = string.format(
                                         "✅ Arise encontrado: %s | %s | %s",
@@ -826,14 +725,12 @@ local function scanAllArisePrompts(isManual)
                                         promptInfo.objectText
                                     )
                                     StatusArise:SetDesc(statusMsg)
-                                    
                                     local ariseKey = promptInfo.worldName .. "|" .. promptInfo.enemyName .. "|" .. promptInfo.objectText
-
                                     if not isManual and not NotifiedAriseKeys[ariseKey] then
                                         Fluent:Notify({
                                             Title = "⚡ ARISE DETECTADO",
-                                            Content = string.format("%s em %s (%s)", 
-                                                promptInfo.enemyName, 
+                                            Content = string.format("%s em %s (%s)",
+                                                promptInfo.enemyName,
                                                 promptInfo.worldName,
                                                 promptInfo.objectText),
                                             Duration = 5
@@ -848,7 +745,6 @@ local function scanAllArisePrompts(isManual)
             end
         end
     end
-    
     if not isManual and AutoAriseEnabled then
         if AriseDetectionCount > 0 then
             local statusText = string.format(
@@ -863,7 +759,6 @@ local function scanAllArisePrompts(isManual)
             AriseStatusMessage = "Procurando... (0 encontrados)"
         end
     end
-    
     if isManual then
         if AriseDetectionCount > 0 then
             StatusArise:SetDesc(string.format("✅ Verificação manual: %d ARISE(s) encontrado(s)", AriseDetectionCount))
@@ -871,43 +766,34 @@ local function scanAllArisePrompts(isManual)
             StatusArise:SetDesc("❌ Verificação manual: Nenhum ARISE encontrado")
         end
     end
-    
     return foundPrompts
 end
 
 local function activateArisePrompt(promptInfo)
     if not promptInfo or not promptInfo.promptObject then return false end
-    
     local prompt = promptInfo.promptObject
     if not prompt or not prompt:IsA("ProximityPrompt") then return false end
     if not promptInfo.enemyObject or not promptInfo.enemyObject.Parent then return false end
-    
     local character = LocalPlayer.Character
     if not character then return false end
-    
     local humanoid = character:FindFirstChild("Humanoid")
     if not humanoid or humanoid.Health <= 0 then return false end
-    
     local hrpPlayer = character:FindFirstChild("HumanoidRootPart")
     if not hrpPlayer then return false end
-    
     local targetPosition = promptInfo.hrpObject.Position + Vector3.new(0, 3, 0)
     pcall(function() hrpPlayer.CFrame = CFrame.new(targetPosition) end)
     task.wait(0.1)
-    
     local success = false
     pcall(function()
         firesignal(prompt.Triggered)
         success = true
     end)
-    
     if not success then
         pcall(function()
             fireproximityprompt(prompt)
             success = true
         end)
     end
-    
     if success then
         task.wait(0.3)
         if not prompt or not prompt.Parent then
@@ -921,26 +807,21 @@ local function activateArisePrompt(promptInfo)
             return true
         end
     end
-    
     return false
 end
 
 local function startAriseSystem()
     while task.wait(AriseCheckInterval) do
         if not AutoAriseEnabled then break end
-        
         local raidArenas = workspace:FindFirstChild("RaidArenas")
         if not raidArenas then
             StatusArise:SetDesc("🔍 Aguardando modo Raid/Gate...")
             continue
         end
-        
         local foundPrompts = scanAllArisePrompts(false)
-        
         if #foundPrompts > 0 and AutoAriseActivation then
             for _, promptInfo in ipairs(foundPrompts) do
                 if not AutoAriseEnabled then break end
-                
                 if promptInfo.activatedCount < promptInfo.chances then
                     local success = activateArisePrompt(promptInfo)
                     if success then task.wait(0.5) end
@@ -976,11 +857,9 @@ Tabs.Arise:AddToggle("AutoAriseDetection", {
             Fluent:Notify({ Title = "Key necessária", Content = "Digite a key primeiro.", Duration = 3 })
             return
         end
-        
         AutoAriseEnabled = state
         AriseStatusMessage = state and "Procurando ARISE..." or "Sistema desativado"
         StatusArise:SetDesc(AriseStatusMessage)
-        
         if state then
             Fluent:Notify({ Title = "Auto Arise Ativado", Content = "Procurando por prompts ARISE...", Duration = 3 })
             task.spawn(startAriseSystem)
@@ -1083,10 +962,8 @@ local function findNearbyBalls()
     if not ensureCharacterAlive() then return nearbyBalls end
     local humanoidRootPart = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
     if not humanoidRootPart then return nearbyBalls end
-    
     local ballsFolder = workspace:FindFirstChild(ballsFolderName)
     if not ballsFolder then return nearbyBalls end
-    
     local characterPos = humanoidRootPart.Position
     for _, ballModel in ipairs(ballsFolder:GetChildren()) do
         local sphere = ballModel:FindFirstChild(sphereName)
@@ -1121,26 +998,21 @@ local function collectBall(ballData)
     if not ballData or not ballData.sphere or not ballData.prompt then return false end
     if not ballData.sphere.Parent or not ballData.model.Parent then return false end
     if not ensureCharacterAlive() then return false end
-    
     local humanoidRootPart = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
     if not humanoidRootPart then return false end
-    
     local sphere = ballData.sphere
     local prompt = ballData.prompt
     local ballModel = ballData.model
     local distance = (sphere.Position - humanoidRootPart.Position).Magnitude
     if distance > BallRadius then return false end
-    
     currentTarget = ballModel.Name
     BallStatus:SetDesc("Coletando: " .. currentTarget)
-    
     local targetPosition = sphere.Position + Vector3.new(0, 2.5, 0)
     local tweenInfo = TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
     local tween = TweenService:Create(humanoidRootPart, tweenInfo, { CFrame = CFrame.new(targetPosition) })
     tween:Play()
     tween.Completed:Wait()
     task.wait(0.15)
-    
     local activated = holdPrompt(prompt)
     if activated then
         for _ = 1, 20 do
@@ -1161,16 +1033,13 @@ local function collectionLoop()
             BallStatus:SetDesc("Auto Ball parado")
             continue
         end
-
         if not ensureCharacterAlive() then
             LocalPlayer.CharacterAdded:Wait()
             task.wait(1)
             continue
         end
-        
         local humanoidRootPart = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
         if not humanoidRootPart then continue end
-        
         local balls = findNearbyBalls()
         if #balls == 0 then
             currentTarget = "Nenhuma bola próxima"
@@ -1178,7 +1047,6 @@ local function collectionLoop()
             task.wait(0.5)
             continue
         end
-        
         for _, ballData in ipairs(balls) do
             if not AutoBallEnabled then break end
             if not ensureCharacterAlive() then break end
@@ -1199,7 +1067,6 @@ task.spawn(function()
             StatusLabel:SetDesc("Waiting (Disabled)")
             continue
         end
-
         pcall(function()
             local notifyGui = LocalPlayer.PlayerGui:FindFirstChild("HUD")
             if notifyGui then
@@ -1218,7 +1085,6 @@ task.spawn(function()
                 end
             end
         end)
-        
         local inDungeon = false
         local dungeonEnemiesFolder = nil
         pcall(function()
@@ -1241,7 +1107,6 @@ task.spawn(function()
                 end
             end
         end)
-        
         if inDungeon and dungeonEnemiesFolder then
             StatusLabel:SetDesc("Dungeon ativo - farmando inimigos...")
         else
@@ -1255,6 +1120,30 @@ end)
 -- ========== INICIALIZAÇÃO ==========
 task.spawn(collectionLoop) -- Auto Ball
 task.spawn(startAriseSystem) -- Auto Arise
+
+-- Auto Join opcional
+AddAutoJoinSection()
+JoinStatus = Tabs.AutoJoin:AddParagraph({ Title = "Status", Content = "Auto Join parado" })
+Tabs.AutoJoin:AddToggle("AutoJoinToggle", {
+    Title = "Ativar Auto Join",
+    Default = false,
+    Callback = function(state)
+        if not KeyPassed then
+            AutoJoinEnabled = false
+            Fluent:Notify({ Title = "Key necessária", Content = "Digite a key primeiro.", Duration = 3 })
+            return
+        end
+        AutoJoinEnabled = state
+        if state then
+            task.spawn(autoJoinLoop)
+        end
+    end
+})
+Tabs.AutoJoin:AddSlider("JoinInterval", {
+    Title = "Intervalo de detecção (s)",
+    Min = 0.5, Max = 5, Default = 1.0, Rounding = 1,
+    Callback = function(v) JoinDetectionInterval = v end
+})
 
 Window:SelectTab(2)
 Fluent:Notify({
