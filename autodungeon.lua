@@ -12,7 +12,7 @@ local RunService = game:GetService("RunService")
 local LocalPlayer = Players.LocalPlayer
 
 -- Carregar Fluent UI
-local Fluent = loadstring(game:HttpGet("https://raw.githubusercontent.com/0eujunioofc/eae/refs/heads/main/junio.lua"))()
+local Fluent = loadstring(game:HttpGet("https://raw.githubusercontent.com/junitokk/dungeon_/refs/heads/main/junio.lua"))()
 
 -- Criar janela
 local Window = Fluent:CreateWindow({
@@ -167,7 +167,7 @@ local function robustClickObject(obj)
                 fireclick(obj)
                 return true 
             end
-        end,
+        },
         
         -- Método 2: firesignal para eventos de clique
         function() 
@@ -178,7 +178,7 @@ local function robustClickObject(obj)
                     return true
                 end
             end
-        end,
+        },
         
         -- Método 3: Input virtual do mouse
         function()
@@ -410,7 +410,7 @@ end
 local function enterDungeonByStation()
     gotoWorldSpawn(9)
     task.wait(0.3)
-    return enterByStation('workspace.Worlds["9"].Systems.DungeonStation')
+    return enterByStation('workspace.Worlds["极"].Systems.DungeonStation')
 end
 
 -- Entrar no Gate pelo World 5
@@ -480,7 +480,6 @@ local GateStatus = Tabs.Gate:AddParagraph({
 -- Botão para entrar pelo RaidStation (World 5)
 Tabs.Gate:AddButton({
     Title = "Entrar pelo RaidStation (World 5)",
-    Description = "Ignora o YES e usa a Station do mundo 5",
     Callback = function()
         if not KeyPassed then
             Fluent:Notify({
@@ -507,7 +506,6 @@ Tabs.Gate:AddButton({
 -- Botão para aceitar YES do Gate
 Tabs.Gate:AddButton({
     Title = "Aceitar YES da Notificação",
-    Description = "Clica no botão YES das notificações do Gate",
     Callback = function()
         if not KeyPassed then
             Fluent:Notify({
@@ -542,7 +540,6 @@ local StatusLabel = Tabs.Main:AddParagraph({
 -- Botão para entrar pela DungeonStation (World 9)
 Tabs.Main:AddButton({
     Title = "Entrar pela DungeonStation (World 9)",
-    Description = "Ignora o YES e usa a DungeonStation direto",
     Callback = function()
         if not KeyPassed then
             Fluent:Notify({
@@ -628,7 +625,7 @@ Tabs.Arise:AddToggle("AutoAriseToggle", {
             Fluent:Notify({
                 Title = "Auto Arise Ativado",
                 Content = "Monitorando arenas para Arise",
-                Duration = 3
+                Duration极
             })
         else
             AriseStatus:SetDesc("⏸️ Auto Arise Desativado")
@@ -641,7 +638,7 @@ AddBallSection()
 
 local BallStatus = Tabs.Ball:AddParagraph({
     Title = "Status do Auto Ball",
-    Content = "Aguardando ativação..."
+    Content极 "Aguardando ativação..."
 })
 
 Tabs.Ball:AddToggle("AutoBallToggle", {
@@ -679,7 +676,7 @@ Tabs.Misc:AddParagraph({
 })
 
 -- Teleporte rápido para qualquer world
-local worldInput = Tabs.Misc:AddInput("WorldInput", {
+local worldInput = Tabs.Misc:极AddInput("WorldInput", {
     Title = "Teleportar para World",
     Default = "",
     Placeholder = "Número do World (ex: 1, 5, 9)",
