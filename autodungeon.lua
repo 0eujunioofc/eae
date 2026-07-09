@@ -38,7 +38,6 @@ Tabs.Defense = Tabs.Gamemodes
 Tabs.Ball = Tabs.Gamemodes
 Tabs.Gate = Tabs.Gamemodes
 Tabs.Arise = Tabs.Gamemodes
-Tabs.AutoJoin = Tabs.Gamemodes
 
 -- Espaco visual entre os modulos
 local function AddSpace(tab)
@@ -63,13 +62,6 @@ local function AddGateSection()
     return AddSection(Tabs.Gate, "AUTO GATE", "[FORA DO MODO] Detecta notificacoes de Gate.")
 end
 
-local function AddAutoJoinSection()
-    return AddSection(
-        Tabs.AutoJoin,
-        "AUTO JOIN / SERVER",
-        "[FORA DO MODO] Procura botoes Join, Entrar ou Play. Nao aceita o YES do Gate."
-    )
-end
 local function AddDungeonSection()
     return AddSection(Tabs.Main, "AUTO DUNGEON", "[DENTRO DO MODO] Sistema da Dungeon World9.")
 end
@@ -100,10 +92,6 @@ local SelectedGateRanks = { C = true }
 local SelectedGateWorld = 5
 local GateAutomationEnabled = false
 
--- VARIÁVEIS DO AUTO JOIN
-local AutoJoinEnabled = false
-local JoinDetectionInterval = 1.0
-
 -- VARIÁVEIS DO AUTO DUNGEON
 local AutoDungeonEnabled = false
 local AutoLeaveEnabled = false
@@ -120,7 +108,7 @@ local collectedCount = 0
 local currentTarget = "Nenhum"
 
 -- Elementos da interface
-local StatusArise, GateStatus, JoinStatus, BallStatus, StatusLabel
+local StatusArise, GateStatus, BallStatus, StatusLabel
 
 -- DISCORD
 local DISCORD_URL = "https://discord.gg/czmYtNf8wf"
@@ -234,76 +222,6 @@ local function teleportToPosition(position)
     end)
     return true
 end
-
--- ========== SISTEMA DE AUTO JOIN ==========
-local function findJoinButtons()
-    local joinButtons = {}
-    
-    local guiLocations = {
-        LocalPlayer.PlayerGui,
-        game:GetService("CoreGui")
-    }
-    
-    for _, gui in ipairs(guiLocations) do
-        pcall(function()
-            local function scanDescendants(parent)
-                for _, child in ipairs(parent:GetDescendants()) do
-                    if child:IsA("TextButton") or child:IsA("ImageButton") then
-                        local text = child.Text or ""
-                        local name = child.Name or ""
-                        
-                        if text:lower():find("join") or name:lower():find("join") or
-                           text:lower():find("entrar") or name:lower():find("entrar") or
-                           text:lower():find("play") or name:lower():find("play") then
-                            table.insert(joinButtons, child)
-                        end
-                    end
-                end
-            end
-            scanDescendants(gui)
-        end)
-    end
-    
-    return joinButtons
-end
-
-local function autoJoinLoop()
-    while task.wait(JoinDetectionInterval) do
-        if not AutoJoinEnabled then
-            JoinStatus:SetDesc("Auto Join desativado")
-            continue
-        end
-        
-        JoinStatus:SetDesc("Procurando botões JOIN...")
-        
-        local joinButtons = findJoinButtons()
-        if #joinButtons > 0 then
-            JoinStatus:SetDesc("✅ " .. #joinButtons .. " botões JOIN encontrados")
-            
-            for _, button in ipairs(joinButtons) do
-                if not AutoJoinEnabled then break end
-                
-                JoinStatus:SetDesc("Clicando no botão JOIN...")
-                local clicked = robustClickObject(button)
-                
-                if clicked then
-                    Fluent:Notify({
-                        Title = "✅ JOIN clicado",
-                        Content = "Entrando no servidor...",
-                        Duration = 3
-                    })
-                    JoinStatus:SetDesc("✅ JOIN realizado - aguardando carregamento")
-                    task.wait(3)
-                    break
-                end
-            end
-        else
-            JoinStatus:SetDesc("❌ Nenhum botão JOIN encontrado")
-        end
-    end
-end
-
-
 
 -- ========== SISTEMA DE AUTO GATE ==========
 local function verifyGateEntry()
