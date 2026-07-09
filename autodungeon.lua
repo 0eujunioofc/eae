@@ -8,7 +8,7 @@ local RunService = game:GetService("RunService")
 local LocalPlayer = Players.LocalPlayer
 
 -- Carregar Fluent UI
-local Fluent = loadstring(game:HttpGet("[raw.githubusercontent.com](https://raw.githubusercontent.com/0eujunioofc/eae/refs/heads/main/junio.lua)"))()
+local Fluent = loadstring(game:HttpGet("https://raw.githubusercontent.com/0eujunioofc/eae/refs/heads/main/junio.lua"))()
 
 local Window = Fluent:CreateWindow({
     Title = 'BR Anime Astral PRO',
@@ -122,7 +122,7 @@ local currentTarget = "Nenhum"
 local StatusArise, GateStatus, JoinStatus, BallStatus, StatusLabel
 
 -- DISCORD
-local DISCORD_URL = "[discord.gg](https://discord.gg/czmYtNf8wf)"
+local DISCORD_URL = "https://discord.gg/czmYtNf8wf"
 
 Tabs.Updates:AddButton({
     Title = "Join Discord Server",
