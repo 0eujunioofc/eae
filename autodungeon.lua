@@ -1,4 +1,5 @@
-repeat task.wait() until game:IsLoaded()
+local safeWait = (task and task.wait) or wait
+repeat safeWait() until game:IsLoaded()
 
 local Players = game:GetService("Players")
 local VirtualInputManager = game:GetService("VirtualInputManager")
