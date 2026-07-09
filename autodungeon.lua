@@ -5,7 +5,7 @@ local VirtualInputManager = game:GetService("VirtualInputManager")
 local GuiService = game:GetService("GuiService")
 local LocalPlayer = Players.LocalPlayer
 
-local Fluent = loadstring(game:HttpGet("https://raw.githubusercontent.com/junitokk/dungeon_/refs/heads/main/junio.lua"))()
+local Fluent = loadstring(game:HttpGet("https://raw.githubusercontent.com/0eujunioofc/eae/refs/heads/main/junio.lua"))()
 
 local Window = Fluent:CreateWindow({
     Title = '<font color="rgb(0,200,80)">🇧🇷 Anime Astral</font>',
