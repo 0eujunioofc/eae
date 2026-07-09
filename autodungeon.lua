@@ -12,7 +12,7 @@ local RunService = game:GetService("RunService")
 local LocalPlayer = Players.LocalPlayer
 
 -- Carregar Fluent UI
-local Fluent = loadstring(game:HttpGet("[raw.githubusercontent.com](https://raw.githubusercontent.com/0eujunioofc/eae/refs/heads/main/junio.lua)"))()
+local Fluent = loadstring(game:HttpGet("https://raw.githubusercontent.com/0eujunioofc/eae/refs/heads/main/junio.lua"))()
 
 -- Criar janela
 local Window = Fluent:CreateWindow({
