@@ -511,13 +511,13 @@ local function clickYesInCurrentGateNotify()
     local root = getGateNotifyRoot()
     if not root then return false end
     for _, card in ipairs(root:GetChildren()) do
-        if card.Visible and tostring(card.Name):match("^Notify_Raid_") then
+        if card:IsA("GuiObject") and card.Visible and tostring(card.Name):match("^Notify_Raid_") then
             local desc = card:FindFirstChild("Description")
             if desc and desc:IsA("TextLabel") and string.lower(desc.Text or ""):find("gate") then
                 local actions = card:
     if not root then return false end
     for _, card in ipairs(root:GetChildren()) do
-        if card.Visible and tostring(card.Name):match("^Notify_Raid_") then
+        if card:IsA("GuiObject") and card.Visible and tostring(card.Name):match("^Notify_Raid_") then
             local desc = card:FindFirstChild("Description")
             if desc and desc:IsA("TextLabel") and string.lower(desc.Text or ""):find("gate") then
                 local actions = card:FindFirstChild("Actions")
@@ -537,13 +537,13 @@ local function clickYesInCurrentGateNotify()
                     if d
     if not root then return false end
     for _, card in ipairs(root:GetChildren()) do
-        if card.Visible and tostring(card.Name):match("^Notify
+        if card:IsA("GuiObject") and card.Visible and tostring(card.Name):match("^Notify
     if not root then return false end
     for _, card in ipairs(root:
    
     if not root then return false end
     for _, card in ipairs(root:GetChildren()) do
-        if card.Visible and tostring(card.Name):match("^Notify_Raid_") then
+        if card:IsA("GuiObject") and card.Visible and tostring(card.Name):match("^Notify_Raid_") then
             local desc = card:FindFirstChild("Description")
             if desc and desc:IsA("TextLabel") and string.lower(desc.Text or ""):find("gate") then
                 local actions = card:FindFirstChild("Actions")
@@ -560,7 +560,7 @@ local function clickYesInCurrentGateNotify()
    
     if not root then return false end
     for _, card in ipairs(root:GetChildren()) do
-        if card.Visible and tostring(card.Name):match("^Notify_Raid_") then
+        if card:IsA("GuiObject") and card.Visible and tostring(card.Name):match("^Notify_Raid_") then
             local desc = card:FindFirstChild("Description")
             if desc and desc:IsA("TextLabel") and string.lower(desc.Text or ""):find("gate") then
                 local actions = card:FindFirstChild("Actions")
