@@ -439,9 +439,37 @@ local function partCenter(inst) if inst:IsA("BasePart") then
 
         -- Detector de novas notificações (sem loop de estação)
         local function setupGateDetector()
-            local success, notifyRoot = pcall(function()
-                return LocalPlayer.PlayerGui:WaitForChild("HUD"):WaitForChild("Main"):WaitForChild("GamemodeNotify") end) if success and notifyRoot then
-                -- Quando nascer uma notificação notifyRoot.ChildAdded:Connect(function(card) if card.Name:match("^Notify_Raid_") then task.spawn(function() task.wait(0.25) scanCurrentGates() end) end end) -- Quando ficar visível for _, card in ipairs(notifyRoot:GetChildren()) do if card.Name:match("^Notify_Raid") then card:GetPropertyChangedSignal("Visible"):Connect(function() if card:IsA("GuiObject") and card.Visible then task.spawn(function() task.wait(0.25) scanCurrentGates() end) end end) end end end end
+    local success, notifyRoot = pcall(function()
+        return LocalPlayer.PlayerGui
+            :WaitForChild("HUD")
+            :WaitForChild("Main")
+            :WaitForChild("GamemodeNotify")
+    end)
+
+    if success and notifyRoot then
+        notifyRoot.ChildAdded:Connect(function(card)
+            if card.Name:match("^Notify_Raid_") then
+                task.spawn(function()
+                    task.wait(0.25)
+                    scanCurrentGates()
+                end)
+            end
+        end)
+
+        for _, card in ipairs(notifyRoot:GetChildren()) do
+            if card.Name:match("^Notify_Raid_") then
+                card:GetPropertyChangedSignal("Visible"):Connect(function()
+                    if card:IsA("GuiObject") and card.Visible then
+                        task.spawn(function()
+                            task.wait(0.25)
+                            scanCurrentGates()
+                        end)
+                    end
+                end)
+            end
+        end
+    end
+end
 
 -- Interface do Gate
 AddGateSection()
