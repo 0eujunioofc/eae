@@ -397,6 +397,216 @@ local function verifyGateEntry()
     return false
 end
 
+-- ========== GATE ENTRY HELPERS V5 ==========
+local function hasVisibleGateNotifyDirect()
+    local notifyRoot = LocalPlayer.PlayerGui:FindFirstChild("HUD")
+        and LocalPlayer.PlayerGui.HUD:FindFirstChild("Main")
+        and LocalPlayer.PlayerGui.HUD.Main:FindFirstChild("GamemodeNotify")
+
+    if not notifyRoot then
+        return false
+    end
+
+    for _, card in ipairs(notifyRoot:GetChildren()) do
+        if card:IsA("GuiObject") and card.Name:match("^Notify_Raid_") and card.Visible then
+            return true
+        end
+    end
+
+    return false
+end
+
+local function getSelectedGateWorldFolder()
+    local worlds = workspace:FindFirstChild("Worlds")
+    if not worlds then
+        return nil
+    end
+
+    return worlds:FindFirstChild(tostring(SelectedGateWorld))
+end
+
+local function getAnyBasePart(inst)
+    if not inst then
+        return nil
+    end
+
+    if inst:IsA("BasePart") then
+        return inst
+    end
+
+    return inst:FindFirstChildWhichIsA("BasePart", true)
+end
+
+local function collectGateEntryObjectsForWorld(worldNumber)
+    local objects = {}
+    local seen = {}
+
+    local function add(obj)
+        if obj and not seen[obj] then
+            seen[obj] = true
+            table.insert(objects, obj)
+        end
+    end
+
+    local worlds = workspace:FindFirstChild("Worlds")
+    local worldFolder = worlds and worlds:FindFirstChild(tostring(worldNumber))
+    if not worldFolder then
+        return objects
+    end
+
+    local systems = worldFolder:FindFirstChild("Systems")
+
+    add(systems and systems:FindFirstChild("RaidStation"))
+    add(worldFolder:FindFirstChild("RaidStation"))
+    add(worldFolder:FindFirstChild("SpawnGate"))
+    add(worldFolder:FindFirstChild("Teleporter"))
+
+    if systems then
+        for _, obj in ipairs(systems:GetDescendants()) do
+            local n = (obj.Name or ""):lower()
+            if n:find("raidstation") or n:find("spawngate") or n:find("teleporter") or n:find("gate") then
+                if obj:IsA("BasePart") or obj:IsA("Model") or obj:IsA("Folder") then
+                    add(obj)
+                end
+            end
+        end
+    end
+
+    for _, obj in ipairs(worldFolder:GetChildren()) do
+        local n = (obj.Name or ""):lower()
+        if n == "spawngate" or n == "teleporter" or n == "raidstation" then
+            add(obj)
+        end
+    end
+
+    return objects
+end
+
+local function hasGateWorldTextActive()
+    local worldFolder = getSelectedGateWorldFolder()
+    if not worldFolder then
+        return false
+    end
+
+    for _, obj in ipairs(worldFolder:GetDescendants()) do
+        if obj:IsA("TextLabel") or obj:IsA("TextButton") or obj:IsA("TextBox") then
+            local txt = tostring(obj.Text or ""):lower()
+            if txt:find("gate rank") or txt:find("time left") then
+                return true
+            end
+        end
+    end
+
+    return false
+end
+
+local function hasVisibleGatePortalPart()
+    local objects = collectGateEntryObjectsForWorld(SelectedGateWorld)
+
+    for _, obj in ipairs(objects) do
+        local objName = (obj.Name or ""):lower()
+        local part = getAnyBasePart(obj)
+
+        -- So usa visual do SpawnGate/Gate como prova de gate ativo.
+        -- RaidStation/Teleporter podem existir sempre, entao nao contam como "ativo" so por existirem.
+        if part and (objName:find("spawngate") or objName == "gate" or objName:find("portal")) then
+            local ok, transparency = pcall(function()
+                return part.Transparency
+            end)
+
+            if ok and tonumber(transparency) and transparency < 0.98 then
+                return true
+            end
+        end
+    end
+
+    return false
+end
+
+local function hasActiveGatePortalByWorld()
+    return hasVisibleGateNotifyDirect() or hasGateWorldTextActive() or hasVisibleGatePortalPart()
+end
+
+local function activateGateEntryObject(obj)
+    if not obj then
+        return false
+    end
+
+    local part = getAnyBasePart(obj)
+    local pos = part and part.Position or partCenter(obj)
+
+    if not pos then
+        return false
+    end
+
+    teleportToPosition(pos)
+    task.wait(0.12)
+
+    local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+
+    if hrp and part and part:FindFirstChildOfClass("TouchInterest") then
+        pcall(function()
+            firetouchinterest(hrp, part, 0)
+            task.wait(0.05)
+            firetouchinterest(hrp, part, 1)
+        end)
+        task.wait(0.12)
+    end
+
+    local prompt = obj:FindFirstChildOfClass("ProximityPrompt") or (part and part:FindFirstChildOfClass("ProximityPrompt"))
+
+    if not prompt then
+        prompt = obj:FindFirstChildWhichIsA("ProximityPrompt", true)
+    end
+
+    if prompt then
+        pcall(function()
+            fireproximityprompt(prompt)
+        end)
+        task.wait(0.18)
+    end
+
+    for _, d in ipairs(obj:GetDescendants()) do
+        if d:IsA("TextButton") or d:IsA("ImageButton") then
+            local nm = (d.Name or ""):lower()
+            local tx = (d.Text or ""):lower()
+            if nm:find("yes") or nm:find("confirm") or nm:find("enter") or nm:find("join")
+            or tx:find("yes") or tx:find("confirm") or tx:find("enter") or tx:find("join") then
+                robustClickObject(d)
+                task.wait(0.12)
+            end
+        end
+    end
+
+    return verifyGateEntry()
+end
+
+local function tryGateEntryObjectsForWorld(worldNumber)
+    local objects = collectGateEntryObjectsForWorld(worldNumber)
+    if #objects == 0 then
+        return false
+    end
+
+    for _, obj in ipairs(objects) do
+        if verifyGateEntry() then
+            return true
+        end
+
+        local ok, result = pcall(function()
+            return activateGateEntryObject(obj)
+        end)
+
+        if ok and result then
+            return true
+        end
+
+        task.wait(0.08)
+    end
+
+    return verifyGateEntry()
+end
+
+
 local function isGateRankSelected(rank)
     if not rank then return false end
     return SelectedGateRanks[rank] == true
@@ -470,6 +680,10 @@ local function findAndActivateSpawnGate()
             end
         end
     end
+    if tryGateEntryObjectsForWorld(SelectedGateWorld) then
+        return true
+    end
+
     return verifyGateEntry()
 end
 
@@ -1571,6 +1785,16 @@ local function buildPriorityCandidates()
     local gateTiming = getModeTiming("Gate")
     local dungeonTiming = getModeTiming("Dungeon")
 
+    -- V5: o estado real do portal no mapa/notificacao vale mais que o relogio.
+    -- Se o jogo mostrar portal/notify ativo fora do horario exato do Windows, trata Gate como ativo.
+    if gateTiming and hasActiveGatePortalByWorld() then
+        gateTiming.active = true
+        gateTiming.preparing = false
+        gateTiming.toNext = 0
+        gateTiming.sinceLast = 0
+        gateTiming.eventIndex = math.floor(os.time() / math.max(1, ModeIntervalSeconds.Gate or 600))
+    end
+
     if canRunGate() and gateTiming then
         table.insert(candidates, {
             name = "Gate",
@@ -1722,6 +1946,7 @@ local function forceGateAttemptByPriority(candidate)
         .. " YES=" .. priorityBoolText(GateAutomationEnabled)
         .. " Notify=" .. priorityBoolText(hasVisibleGateNotify())
         .. " RaidStation=" .. priorityBoolText(getRaidStationForWorld(SelectedGateWorld) ~= nil)
+        .. " PortalReal=" .. priorityBoolText(hasActiveGatePortalByWorld())
         .. " World=" .. tostring(SelectedGateWorld),
         true
     )
@@ -1745,7 +1970,7 @@ local function forceGateAttemptByPriority(candidate)
     end
 
     local actionKey = "force_gate_" .. tostring(candidate and candidate.eventKey or "event")
-    if not priorityActionAllowed(actionKey, 10) then
+    if not priorityActionAllowed(actionKey, 1.2) then
         return false
     end
 
@@ -1764,10 +1989,16 @@ local function forceGateAttemptByPriority(candidate)
             priorityDebugAdd("Gate passo 2 scan + notify: " .. priorityBoolText(success), true)
         end
 
-        -- 3) se perdeu a notificacao, tenta o fallback pelo RaidStation/SpawnGate
+        -- 3) se perdeu a notificacao, tenta os objetos reais do mundo: RaidStation, SpawnGate e Teleporter
+        if not success then
+            success = tryGateEntryObjectsForWorld(SelectedGateWorld)
+            priorityDebugAdd("Gate passo 3 objetos do mundo: " .. priorityBoolText(success), true)
+        end
+
+        -- 4) fallback antigo
         if not success then
             success = findAndActivateSpawnGate()
-            priorityDebugAdd("Gate passo 3 RaidStation fallback: " .. priorityBoolText(success), true)
+            priorityDebugAdd("Gate passo 4 RaidStation fallback antigo: " .. priorityBoolText(success), true)
         end
     end)
 
@@ -1952,7 +2183,7 @@ end
 -- UI do sistema de prioridade
 AddSpace(Tabs.Settings)
 Tabs.Settings:AddParagraph({
-    Title = "========== PRIORIDADE DE ENTRADA V4 ==========" ,
+    Title = "========== PRIORIDADE DE ENTRADA V5 ==========" ,
     Content = "Gate a cada 10min e Dungeon a cada 15min. No mesmo minuto, menor prioridade numerica ganha."
 })
 
