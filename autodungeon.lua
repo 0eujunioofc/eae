@@ -1030,6 +1030,109 @@ Tabs.Main:AddToggle("AutoDungeon", {
     end
 })
 
+-- ========== FUNCOES DO AUTO LEAVE ==========
+local function getCurrentDungeonRoom()
+    local dungeonGui = LocalPlayer.PlayerGui:FindFirstChild("DungeonGui")
+    if not dungeonGui then
+        return 0
+    end
+
+    local main = dungeonGui:FindFirstChild("Main")
+    if not main then
+        return 0
+    end
+
+    local roomLabel = main:FindFirstChild("Room")
+    if not roomLabel or not roomLabel:IsA("TextLabel") then
+        return 0
+    end
+
+    local text = roomLabel.Text or ""
+    local roomNumber = tonumber(text:match("%d+"))
+
+    return roomNumber or 0
+end
+
+local function findLeaveButton()
+    local dungeonGui = LocalPlayer.PlayerGui:FindFirstChild("DungeonGui")
+    if not dungeonGui then
+        return nil
+    end
+
+    local main = dungeonGui:FindFirstChild("Main")
+    if not main then
+        return nil
+    end
+
+    local leaveBtn = main:FindFirstChild("Leave")
+    if leaveBtn and (leaveBtn:IsA("TextButton") or leaveBtn:IsA("ImageButton")) then
+        return leaveBtn
+    end
+
+    for _, child in ipairs(main:GetDescendants()) do
+        if child:IsA("TextButton") or child:IsA("ImageButton") then
+            local name = (child.Name or ""):lower()
+            local text = (child.Text or ""):lower()
+
+            if name:find("leave") or text:find("leave") or name:find("sair") or text:find("sair") then
+                return child
+            end
+        end
+    end
+
+    return nil
+end
+
+local function setLeaveInfo(text)
+    if LeaveInfo then
+        pcall(function()
+            LeaveInfo:SetDesc(text)
+        end)
+    end
+end
+
+local function autoLeaveLoop()
+    while task.wait(1) do
+        if not AutoLeaveEnabled then
+            setLeaveInfo("Auto Leave desativado")
+            continue
+        end
+
+        local currentRoom = getCurrentDungeonRoom()
+
+        if currentRoom <= 0 then
+            setLeaveInfo("Fora da Dungeon (sala: 0)")
+            continue
+        end
+
+        setLeaveInfo(("Dungeon ativo | Sala atual: %d | Limite: %d"):format(currentRoom, LeaveRoom))
+
+        if currentRoom >= LeaveRoom then
+            local leaveButton = findLeaveButton()
+
+            if leaveButton then
+                setLeaveInfo(("Botao Leave encontrado. Saindo... (%d >= %d)"):format(currentRoom, LeaveRoom))
+
+                local clicked = robustClickObject(leaveButton)
+
+                if clicked then
+                    Fluent:Notify({
+                        Title = "AUTO LEAVE",
+                        Content = ("Saiu da Dungeon na sala %d (limite: %d)"):format(currentRoom, LeaveRoom),
+                        Duration = 5
+                    })
+                    setLeaveInfo("Leave clicado. Aguardando nova Dungeon...")
+                    task.wait(3)
+                else
+                    setLeaveInfo("Falha ao clicar no Leave")
+                end
+            else
+                setLeaveInfo(("Botao Leave nao encontrado | Sala: %d | Limite: %d"):format(currentRoom, LeaveRoom))
+            end
+        end
+    end
+end
+
 -- ========== AUTO LEAVE ==========
 AddSpace(Tabs.Main)
 
@@ -1104,7 +1207,7 @@ Tabs.Main:AddButton({
         end
 
         local currentRoom = getCurrentDungeonRoom()
-        local leaveButton = findLeaveButton()
+        local leaveButton = findLeaveButton()   
 
         LeaveInfo:SetDesc(
             ("Sala atual: %d | Limite: %d | Botao Leave: %s")
@@ -1596,6 +1699,7 @@ end)
 -- ========== INICIALIZAÇÃO ==========
 task.spawn(collectionLoop) -- Auto Ball
 task.spawn(startAriseSystem) -- Auto Arise
+task.spawn(autoLeaveLoop) -- Auto Leave
 
 -- Auto Join opcional
 AddAutoJoinSection()
