@@ -188,6 +188,10 @@ local PriorityLastAction = {}
 local PriorityLastLeaveAt = 0
 local PriorityLastStatusText = ""
 local PriorityLastStatusAt = 0
+local PriorityDebugEnabled = true
+local PriorityDebugLines = {}
+local PriorityDebugLastLine = ""
+local PriorityDebugLastAt = 0
 
 -- VARIÁVEIS DO AUTO BALL
 local AutoBallEnabled = false
@@ -200,7 +204,7 @@ local collectedCount = 0
 local currentTarget = "Nenhum"
 
 -- Elementos da interface
-local StatusArise, GateStatus, JoinStatus, BallStatus, StatusLabel, LeaveInfo, PriorityStatus
+local StatusArise, GateStatus, JoinStatus, BallStatus, StatusLabel, LeaveInfo, PriorityStatus, PriorityDebugLog
 
 -- DISCORD
 local DISCORD_URL = "https://discord.gg/czmYtNf8wf"
@@ -1334,6 +1338,61 @@ local function setPriorityStatus(text, force)
     end)
 end
 
+local function priorityDebugAdd(text, force)
+    if not PriorityDebugEnabled then
+        return
+    end
+
+    local now = os.clock()
+    text = tostring(text or "")
+
+    if not force and text == PriorityDebugLastLine and (now - PriorityDebugLastAt) < 2 then
+        return
+    end
+
+    PriorityDebugLastLine = text
+    PriorityDebugLastAt = now
+
+    local line = os.date("%H:%M:%S") .. " | " .. text
+    table.insert(PriorityDebugLines, 1, line)
+
+    while #PriorityDebugLines > 10 do
+        table.remove(PriorityDebugLines)
+    end
+
+    pcall(function()
+        print("[PRIORITY DEBUG] " .. line)
+    end)
+
+    if PriorityDebugLog then
+        pcall(function()
+            PriorityDebugLog:SetDesc(table.concat(PriorityDebugLines, "\n"))
+        end)
+    end
+end
+
+local function priorityBoolText(value)
+    return value and "ON" or "OFF"
+end
+
+local function hasVisibleGateNotify()
+    local notifyRoot = LocalPlayer.PlayerGui:FindFirstChild("HUD")
+        and LocalPlayer.PlayerGui.HUD:FindFirstChild("Main")
+        and LocalPlayer.PlayerGui.HUD.Main:FindFirstChild("GamemodeNotify")
+
+    if not notifyRoot then
+        return false
+    end
+
+    for _, card in ipairs(notifyRoot:GetChildren()) do
+        if card:IsA("GuiObject") and card.Name:match("^Notify_Raid_") and card.Visible then
+            return true
+        end
+    end
+
+    return false
+end
+
 local function formatPrioritySeconds(seconds)
     seconds = math.max(0, math.floor(tonumber(seconds) or 0))
     local minutes = math.floor(seconds / 60)
@@ -1586,16 +1645,20 @@ end
 
 local function tryPriorityLeave(targetMode, currentMode, candidate)
     if os.clock() - PriorityLastLeaveAt < 8 then
+        priorityDebugAdd("Saida ignorada por cooldown | atual=" .. tostring(currentMode) .. " alvo=" .. tostring(targetMode))
         return false
     end
 
     PriorityLastLeaveAt = os.clock()
+    priorityDebugAdd("Tentando sair por prioridade | atual=" .. tostring(currentMode) .. " alvo=" .. tostring(targetMode), true)
 
     if currentMode == "Dungeon" then
         local leaveButton = findLeaveButton()
+        priorityDebugAdd("Botao Leave detectado: " .. priorityBoolText(leaveButton ~= nil), true)
         if leaveButton then
             setPriorityStatus("Prioridade: saindo da Dungeon para preparar " .. targetMode, true)
             local clicked = robustClickObject(leaveButton)
+            priorityDebugAdd("Clique no Leave: " .. priorityBoolText(clicked), true)
             if clicked then
                 priorityNotifyOnce(
                     "priority_leave_" .. tostring(targetMode) .. "_" .. tostring(candidate and candidate.eventKey or "event"),
@@ -1617,11 +1680,23 @@ end
 local function ensureGateDetectorByPriority()
     if not PriorityGateDetectorStarted then
         PriorityGateDetectorStarted = true
+        priorityDebugAdd("Detector do Gate iniciado pela prioridade", true)
         task.spawn(setupGateDetector)
+    else
+        priorityDebugAdd("Detector do Gate ja estava iniciado")
     end
 end
 
 local function forceGateAttemptByPriority(candidate)
+    priorityDebugAdd(
+        "Gate tentativa | AutoGate=" .. priorityBoolText(AutoGateEnabled)
+        .. " YES=" .. priorityBoolText(GateAutomationEnabled)
+        .. " Notify=" .. priorityBoolText(hasVisibleGateNotify())
+        .. " RaidStation=" .. priorityBoolText(getRaidStationForWorld(SelectedGateWorld) ~= nil)
+        .. " World=" .. tostring(SelectedGateWorld),
+        true
+    )
+
     if not GateAutomationEnabled then
         setPriorityStatus("Gate priorizado, mas 'Clique Automatico no YES' esta desligado.", true)
         priorityNotifyOnce(
@@ -1644,17 +1719,20 @@ local function forceGateAttemptByPriority(candidate)
     pcall(function()
         -- 1) tenta aceitar notificacao que ja esta aberta
         success = clickYesInCurrentGateNotify()
+        priorityDebugAdd("Gate passo 1 notify aberto: " .. priorityBoolText(success), true)
 
         -- 2) se ainda nao foi, forca uma varredura e tenta aceitar de novo
         if not success then
             scanCurrentGates()
             task.wait(0.25)
             success = clickYesInCurrentGateNotify()
+            priorityDebugAdd("Gate passo 2 scan + notify: " .. priorityBoolText(success), true)
         end
 
         -- 3) se perdeu a notificacao, tenta o fallback pelo RaidStation/SpawnGate
         if not success then
             success = findAndActivateSpawnGate()
+            priorityDebugAdd("Gate passo 3 RaidStation fallback: " .. priorityBoolText(success), true)
         end
     end)
 
@@ -1676,6 +1754,7 @@ end
 
 local function startGateByPriority(candidate)
     CurrentPriorityMode = "Gate"
+    priorityDebugAdd("Start Gate por prioridade | evento=" .. tostring(candidate and candidate.eventKey or "event"), true)
     ensureGateDetectorByPriority()
 
     local actionKey = "start_gate_" .. tostring(candidate and candidate.eventKey or "event")
@@ -1691,6 +1770,7 @@ end
 
 local function startDungeonByPriority(candidate)
     CurrentPriorityMode = "Dungeon"
+    priorityDebugAdd("Start Dungeon por prioridade | evento=" .. tostring(candidate and candidate.eventKey or "event"), true)
 
     local actionKey = "start_dungeon_" .. tostring(candidate and candidate.eventKey or "event")
     if priorityActionAllowed(actionKey, 12) then
@@ -1724,6 +1804,7 @@ local function prioritySchedulerLoop()
 
         if #candidates == 0 then
             setPriorityStatus("Sem candidato ativo | Gate: " .. gateText .. " | Dungeon: " .. dungeonText .. " | Confira Key/Auto Gate/Auto Dungeon")
+            priorityDebugAdd("Sem candidato | Key=" .. priorityBoolText(KeyPassed) .. " AutoGate=" .. priorityBoolText(AutoGateEnabled) .. " AutoDungeon=" .. priorityBoolText(AutoDungeonEnabled))
             continue
         end
 
@@ -1753,7 +1834,17 @@ local function prioritySchedulerLoop()
             )
         )
 
+        priorityDebugAdd(
+            "Winner=" .. tostring(winner.name)
+            .. " fase=" .. tostring(winner.reason)
+            .. " atual=" .. tostring(currentMode)
+            .. " Gate=" .. tostring(gateText)
+            .. " Dungeon=" .. tostring(dungeonText)
+            .. " P(G/D)=" .. tostring(Priority.Gate) .. "/" .. tostring(Priority.Dungeon)
+        )
+
         if shouldLeaveForCandidate(currentMode, winner) then
+            priorityDebugAdd("Decisao: sair do modo atual para " .. tostring(winner.name), true)
             tryPriorityLeave(winner.name, currentMode, winner)
             continue
         end
@@ -1761,8 +1852,11 @@ local function prioritySchedulerLoop()
         -- V3: se o Gate venceu e ja esta ativo, tenta entrar mesmo que o estado atual tenha ficado confuso.
         -- Isso evita perder o Gate depois de sair da Dungeon e voltar ao mundo.
         if winner.name == "Gate" and winner.active then
+            priorityDebugAdd("Gate ativo venceu | currentMode=" .. tostring(currentMode), true)
             if currentMode == "Idle" or currentMode == "Dungeon" then
                 startGateByPriority(winner)
+            else
+                priorityDebugAdd("Gate venceu, mas currentMode nao permite start: " .. tostring(currentMode), true)
             end
             continue
         end
@@ -1776,6 +1870,8 @@ local function prioritySchedulerLoop()
             if winner.name == "Dungeon" then
                 startDungeonByPriority(winner)
             end
+        elseif winner.active then
+            priorityDebugAdd("Modo ativo venceu, mas atual nao esta Idle | vencedor=" .. tostring(winner.name) .. " atual=" .. tostring(currentMode))
         end
     end
 end
@@ -1790,6 +1886,48 @@ Tabs.Settings:AddParagraph({
 PriorityStatus = Tabs.Settings:AddParagraph({
     Title = "Status da Prioridade",
     Content = "Sistema de prioridade desativado"
+})
+
+PriorityDebugLog = Tabs.Settings:AddParagraph({
+    Title = "Debug da Prioridade",
+    Content = "Aguardando eventos..."
+})
+
+Tabs.Settings:AddToggle("PriorityDebugToggle", {
+    Title = "Debug da Prioridade",
+    Description = "Mostra o que o sistema decidiu: vencedor, modo atual, notify, YES e RaidStation.",
+    Default = true,
+    Callback = function(state)
+        PriorityDebugEnabled = state
+        if state then
+            priorityDebugAdd("Debug ativado", true)
+        elseif PriorityDebugLog then
+            PriorityDebugLog:SetDesc("Debug desativado")
+        end
+    end
+})
+
+Tabs.Settings:AddButton({
+    Title = "Testar prioridade agora",
+    Description = "Mostra Gate/Dungeon, modo atual e vencedor sem forcar entrada.",
+    Callback = function()
+        local candidates, gateTiming, dungeonTiming = buildPriorityCandidates()
+        local gateText, dungeonText = describePriorityTiming(gateTiming, dungeonTiming)
+        local currentMode = detectCurrentPriorityMode()
+        local winner = choosePriorityCandidate(candidates)
+        local winnerText = winner and (winner.name .. " / " .. tostring(winner.reason)) or "Nenhum"
+
+        priorityDebugAdd(
+            "TESTE MANUAL | vencedor=" .. winnerText
+            .. " atual=" .. tostring(currentMode)
+            .. " Gate=" .. tostring(gateText)
+            .. " Dungeon=" .. tostring(dungeonText)
+            .. " AutoGate=" .. priorityBoolText(AutoGateEnabled)
+            .. " YES=" .. priorityBoolText(GateAutomationEnabled)
+            .. " Notify=" .. priorityBoolText(hasVisibleGateNotify()),
+            true
+        )
+    end
 })
 
 Tabs.Settings:AddToggle("PrioritySystemToggle", {
