@@ -133,7 +133,7 @@ local collectedCount = 0
 local currentTarget = "Nenhum"
 
 -- Elementos da interface
-local StatusArise, GateStatus, JoinStatus, BallStatus, StatusLabel
+local StatusArise, GateStatus, JoinStatus, BallStatus, StatusLabel, LeaveInfo
 
 -- DISCORD
 local DISCORD_URL = "https://discord.gg/czmYtNf8wf"
@@ -1030,30 +1030,94 @@ Tabs.Main:AddToggle("AutoDungeon", {
     end
 })
 
-Tabs.Main:AddToggle("AutoLeave", {
-    Title = "Auto Leave", 
-    Default = false, 
-    Callback = function(state) 
+-- ========== AUTO LEAVE ==========
+AddSpace(Tabs.Main)
+
+Tabs.Main:AddParagraph({
+    Title = "========== AUTO LEAVE ==========",
+    Content = "[DENTRO DO MODO] Sai automaticamente quando atinge sala especifica"
+})
+
+LeaveInfo = Tabs.Main:AddParagraph({
+    Title = "Status do Auto Leave",
+    Content = "Aguardando Dungeon...",
+    Id = "LeaveInfo"
+})
+
+Tabs.Main:AddToggle("AutoLeaveToggle", {
+    Title = "Ativar Auto Leave",
+    Description = "Sai da Dungeon automaticamente na sala configurada",
+    Default = false,
+    Callback = function(state)
         if not KeyPassed then
             AutoLeaveEnabled = false
-            Fluent:Notify({ Title = "Key necessária", Content = "Digite a key primeiro.", Duration = 3 })
+            Fluent:Notify({
+                Title = "Key necessaria",
+                Content = "Digite a key primeiro.",
+                Duration = 3
+            })
             return
         end
+
         AutoLeaveEnabled = state
+
+        if state then
+            LeaveInfo:SetDesc(("Auto Leave ativado | Sair na sala %d"):format(LeaveRoom))
+            Fluent:Notify({
+                Title = "Auto Leave ativado",
+                Content = ("Saira automaticamente na sala %d."):format(LeaveRoom),
+                Duration = 3
+            })
+        else
+            LeaveInfo:SetDesc("Auto Leave desativado")
+        end
     end
 })
 
-Tabs.Main:AddSlider("LeaveRoom", {
-    Title = "Leave Room", 
-    Min = 1, 
-    Max = 50, 
-    Default = 50, 
-    Rounding = 0.1, 
-    Callback = function(Value) 
-        LeaveRoom = Value 
+Tabs.Main:AddSlider("LeaveRoomSlider", {
+    Title = "Sala para sair",
+    Description = "Saira automaticamente quando atingir esta sala",
+    Min = 1,
+    Max = 50,
+    Default = 50,
+    Rounding = 0,
+    Callback = function(value)
+        LeaveRoom = math.floor(value)
+
+        if LeaveInfo then
+            LeaveInfo:SetDesc(("Limite ajustado para sala %d | Atual: %d"):format(LeaveRoom, getCurrentDungeonRoom()))
+        end
     end
 })
 
+Tabs.Main:AddButton({
+    Title = "Testar deteccao agora",
+    Description = "Verifica sala atual e botao Leave",
+    Callback = function()
+        if not KeyPassed then
+            Fluent:Notify({
+                Title = "Key necessaria",
+                Content = "Digite a key primeiro.",
+                Duration = 3
+            })
+            return
+        end
+
+        local currentRoom = getCurrentDungeonRoom()
+        local leaveButton = findLeaveButton()
+
+        LeaveInfo:SetDesc(
+            ("Sala atual: %d | Limite: %d | Botao Leave: %s")
+            :format(currentRoom, LeaveRoom, leaveButton and "SIM" or "NAO")
+        )
+
+        Fluent:Notify({
+            Title = "Teste de deteccao",
+            Content = ("Sala: %d | Botao: %s"):format(currentRoom, leaveButton and "Encontrado" or "Nao encontrado"),
+            Duration = 4
+        })
+    end
+})
 -- ========== SISTEMA DE AUTO BALL ==========
 AddBallSection()
 BallStatus = Tabs.Ball:AddParagraph({ Title = "Status", Content = "Auto Ball parado" })
