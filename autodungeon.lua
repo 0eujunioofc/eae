@@ -181,6 +181,7 @@ local START_WINDOW = 120
 local PREP_LEAVE_BEFORE = 90
 local PRIORITY_LOOP_INTERVAL = 1
 local PRIORITY_ACTION_COOLDOWN = 8
+local PRIORITY_LEAVE_COOLDOWN = 1.5
 local CurrentPriorityMode = "Idle"
 local PriorityGateDetectorStarted = false
 local PriorityLastNotify = {}
@@ -1644,12 +1645,14 @@ local function shouldLeaveForCandidate(currentMode, candidate)
 end
 
 local function tryPriorityLeave(targetMode, currentMode, candidate)
-    if os.clock() - PriorityLastLeaveAt < 8 then
-        priorityDebugAdd("Saida ignorada por cooldown | atual=" .. tostring(currentMode) .. " alvo=" .. tostring(targetMode))
-        return false
+    local now = os.clock()
+
+    if now - PriorityLastLeaveAt < PRIORITY_LEAVE_COOLDOWN then
+        priorityDebugAdd("Saida em cooldown curto, nao vou spammar clique | atual=" .. tostring(currentMode) .. " alvo=" .. tostring(targetMode))
+        return false, "cooldown"
     end
 
-    PriorityLastLeaveAt = os.clock()
+    PriorityLastLeaveAt = now
     priorityDebugAdd("Tentando sair por prioridade | atual=" .. tostring(currentMode) .. " alvo=" .. tostring(targetMode), true)
 
     if currentMode == "Dungeon" then
@@ -1663,18 +1666,22 @@ local function tryPriorityLeave(targetMode, currentMode, candidate)
                 priorityNotifyOnce(
                     "priority_leave_" .. tostring(targetMode) .. "_" .. tostring(candidate and candidate.eventKey or "event"),
                     "PRIORIDADE",
-                    "Saiu da Dungeon para priorizar " .. targetMode,
+                    "Tentou sair da Dungeon para priorizar " .. targetMode,
                     4,
                     20
                 )
                 CurrentPriorityMode = "Idle"
-                return true
+                return true, "clicked"
             end
+
+            return false, "click_failed"
         end
+
+        return false, "leave_not_found"
     end
 
     setPriorityStatus("Prioridade: " .. targetMode .. " e mais importante, mas nao achei uma saida segura de " .. tostring(currentMode), true)
-    return false
+    return false, "no_safe_exit"
 end
 
 local function ensureGateDetectorByPriority()
@@ -1845,8 +1852,18 @@ local function prioritySchedulerLoop()
 
         if shouldLeaveForCandidate(currentMode, winner) then
             priorityDebugAdd("Decisao: sair do modo atual para " .. tostring(winner.name), true)
-            tryPriorityLeave(winner.name, currentMode, winner)
-            continue
+            local leaveOk, leaveReason = tryPriorityLeave(winner.name, currentMode, winner)
+
+            -- Se o Gate ja esta ativo, nao fica preso no cooldown/estado antigo de Dungeon.
+            -- Ele tenta o fluxo do Gate mesmo assim, para nao perder a janela de entrada.
+            if not (winner.name == "Gate" and winner.active) then
+                continue
+            end
+
+            priorityDebugAdd(
+                "Gate ativo: apos tentativa de saida, vou tentar entrada mesmo assim | leave=" .. tostring(leaveOk) .. " motivo=" .. tostring(leaveReason),
+                true
+            )
         end
 
         -- V3: se o Gate venceu e ja esta ativo, tenta entrar mesmo que o estado atual tenha ficado confuso.
