@@ -162,7 +162,7 @@ local AutoDungeonEnabled = false
 local AutoLeaveEnabled = false
 local LeaveRoom = 50
 
--- VARIÁVEIS DO SISTEMA DE PRIORIDADE
+-- VARIÁVEIS DO SISTEMA DE PRIORIDADE V2
 local PrioritySystemEnabled = false
 local LeaveForHigherPriority = true
 local Priority = {
@@ -170,15 +170,24 @@ local Priority = {
     Dungeon = 2,
     TimelessRaid = 3
 }
-local GateMinutes = {0, 10, 20, 30, 40, 50}
-local DungeonMinutes = {0, 15, 30, 45}
+-- Gate aparece a cada 10 minutos; Dungeon aparece a cada 15 minutos.
+local ModeIntervalSeconds = {
+    Gate = 10 * 60,
+    Dungeon = 15 * 60
+}
+-- Janela depois do horário exato para considerar que o modo acabou de começar.
 local START_WINDOW = 75
+-- Quanto tempo antes de um modo prioritário começar o script tenta sair do modo atual.
 local PREP_LEAVE_BEFORE = 30
+local PRIORITY_LOOP_INTERVAL = 1
+local PRIORITY_ACTION_COOLDOWN = 8
 local CurrentPriorityMode = "Idle"
 local PriorityGateDetectorStarted = false
-local PriorityLastNotifyKey = ""
-local PriorityLastNotifyTime = 0
-local PriorityLastLeaveTime = 0
+local PriorityLastNotify = {}
+local PriorityLastAction = {}
+local PriorityLastLeaveAt = 0
+local PriorityLastStatusText = ""
+local PriorityLastStatusAt = 0
 
 -- VARIÁVEIS DO AUTO BALL
 local AutoBallEnabled = false
@@ -1300,64 +1309,101 @@ Tabs.Main:AddButton({
         })
     end
 })
--- ========== SISTEMA DE PRIORIDADE DE ENTRADA ==========
-local function setPriorityStatus(text)
-    if PriorityStatus then
-        pcall(function()
-            PriorityStatus:SetDesc(text)
-        end)
+-- ========== SISTEMA DE PRIORIDADE DE ENTRADA V2 ==========
+local function setPriorityStatus(text, force)
+    if not PriorityStatus then
+        return
     end
+
+    local now = os.clock()
+    if not force and text == PriorityLastStatusText and (now - PriorityLastStatusAt) < 1 then
+        return
+    end
+
+    PriorityLastStatusText = text
+    PriorityLastStatusAt = now
+
+    pcall(function()
+        PriorityStatus:SetDesc(text)
+    end)
 end
 
-local function nowUTC()
-    return os.time(os.date("!*t"))
+local function formatPrioritySeconds(seconds)
+    seconds = math.max(0, math.floor(tonumber(seconds) or 0))
+    local minutes = math.floor(seconds / 60)
+    local rest = seconds % 60
+    if minutes > 0 then
+        return string.format("%dm%02ds", minutes, rest)
+    end
+    return tostring(rest) .. "s"
 end
 
-local function sortedMinuteCopy(minuteList)
-    local copy = {}
-    for _, minute in ipairs(minuteList) do
-        table.insert(copy, tonumber(minute) or 0)
-    end
-    table.sort(copy)
-    return copy
+local function intervalTiming(intervalSeconds)
+    intervalSeconds = math.max(1, tonumber(intervalSeconds) or 60)
+    local now = os.time()
+    local sinceLast = now % intervalSeconds
+    local toNext = (intervalSeconds - sinceLast) % intervalSeconds
+
+    return {
+        sinceLast = sinceLast,
+        toNext = toNext,
+        active = sinceLast <= START_WINDOW,
+        preparing = toNext > 0 and toNext <= PREP_LEAVE_BEFORE,
+        eventIndex = math.floor(now / intervalSeconds)
+    }
 end
 
-local function secondsToNextOccurrence(minuteList)
-    local minutes = sortedMinuteCopy(minuteList)
-    if #minutes == 0 then
-        return 3600
+local function getModeTiming(modeName)
+    local interval = ModeIntervalSeconds[modeName]
+    if not interval then
+        return nil
     end
-
-    local t = os.date("!*t", nowUTC())
-    local nextMinute = nil
-    local hourOffset = 0
-
-    for _, minute in ipairs(minutes) do
-        if minute > t.min or (minute == t.min and t.sec == 0) then
-            nextMinute = minute
-            break
-        end
-    end
-
-    if not nextMinute then
-        nextMinute = minutes[1]
-        hourOffset = 1
-    end
-
-    local currentSeconds = (t.hour * 3600) + (t.min * 60) + t.sec
-    local targetHour = (t.hour + hourOffset) % 24
-    local targetSeconds = (targetHour * 3600) + (nextMinute * 60)
-    local delta = targetSeconds - currentSeconds
-
-    if delta < 0 then
-        delta = delta + 86400
-    end
-
-    return delta
+    return intervalTiming(interval)
 end
 
-local function inStartWindow(seconds)
-    return seconds >= 0 and seconds <= START_WINDOW
+local function getModePriority(modeName)
+    return Priority[modeName] or 99
+end
+
+local function getPriorityEventKey(modeName, timing)
+    if not timing then
+        return modeName .. "_none"
+    end
+
+    if timing.active then
+        return modeName .. "_active_" .. tostring(timing.eventIndex)
+    end
+
+    return modeName .. "_next_" .. tostring(timing.eventIndex + 1)
+end
+
+local function priorityNotifyOnce(key, title, content, duration, cooldown)
+    local now = os.clock()
+    cooldown = cooldown or 10
+
+    if PriorityLastNotify[key] and (now - PriorityLastNotify[key]) < cooldown then
+        return false
+    end
+
+    PriorityLastNotify[key] = now
+    Fluent:Notify({
+        Title = title,
+        Content = content,
+        Duration = duration or 3
+    })
+    return true
+end
+
+local function priorityActionAllowed(key, cooldown)
+    local now = os.clock()
+    cooldown = cooldown or PRIORITY_ACTION_COOLDOWN
+
+    if PriorityLastAction[key] and (now - PriorityLastAction[key]) < cooldown then
+        return false
+    end
+
+    PriorityLastAction[key] = now
+    return true
 end
 
 local function hasChildrenFolderWithEnemies(rootName)
@@ -1377,7 +1423,14 @@ local function hasChildrenFolderWithEnemies(rootName)
 end
 
 local function detectCurrentPriorityMode()
-    if hasChildrenFolderWithEnemies("DungeonArenas") then
+    local currentRoom = 0
+    pcall(function()
+        if getCurrentDungeonRoom then
+            currentRoom = getCurrentDungeonRoom() or 0
+        end
+    end)
+
+    if currentRoom > 0 or hasChildrenFolderWithEnemies("DungeonArenas") then
         return "Dungeon"
     end
 
@@ -1388,22 +1441,6 @@ local function detectCurrentPriorityMode()
     return "Idle"
 end
 
-local function priorityNotifyOnce(key, title, content, duration)
-    local now = os.clock()
-    if PriorityLastNotifyKey == key and (now - PriorityLastNotifyTime) < 15 then
-        return
-    end
-
-    PriorityLastNotifyKey = key
-    PriorityLastNotifyTime = now
-
-    Fluent:Notify({
-        Title = title,
-        Content = content,
-        Duration = duration or 3
-    })
-end
-
 local function canRunGate()
     return KeyPassed and AutoGateEnabled
 end
@@ -1412,67 +1449,121 @@ local function canRunDungeon()
     return KeyPassed and AutoDungeonEnabled
 end
 
-local function pickNextByPriority()
-    local gateIn = secondsToNextOccurrence(GateMinutes)
-    local dungeonIn = secondsToNextOccurrence(DungeonMinutes)
+local function buildPriorityCandidates()
     local candidates = {}
+    local gateTiming = getModeTiming("Gate")
+    local dungeonTiming = getModeTiming("Dungeon")
 
-    if canRunGate() then
+    if canRunGate() and gateTiming then
         table.insert(candidates, {
             name = "Gate",
-            priority = Priority.Gate,
-            eta = gateIn
+            priority = getModePriority("Gate"),
+            timing = gateTiming,
+            active = gateTiming.active,
+            preparing = gateTiming.preparing,
+            toNext = gateTiming.toNext,
+            sinceLast = gateTiming.sinceLast,
+            eventKey = getPriorityEventKey("Gate", gateTiming)
         })
     end
 
-    if canRunDungeon() then
+    if canRunDungeon() and dungeonTiming then
         table.insert(candidates, {
             name = "Dungeon",
-            priority = Priority.Dungeon,
-            eta = dungeonIn
+            priority = getModePriority("Dungeon"),
+            timing = dungeonTiming,
+            active = dungeonTiming.active,
+            preparing = dungeonTiming.preparing,
+            toNext = dungeonTiming.toNext,
+            sinceLast = dungeonTiming.sinceLast,
+            eventKey = getPriorityEventKey("Dungeon", dungeonTiming)
         })
     end
 
-    if #candidates == 0 then
-        return nil, gateIn, dungeonIn
+    return candidates, gateTiming, dungeonTiming
+end
+
+local function choosePriorityCandidate(candidates)
+    local active = {}
+    local preparing = {}
+
+    for _, candidate in ipairs(candidates) do
+        if candidate.active then
+            table.insert(active, candidate)
+        elseif candidate.preparing then
+            table.insert(preparing, candidate)
+        end
     end
 
-    table.sort(candidates, function(a, b)
+    local function sortByPriorityThenTime(a, b)
         if a.priority ~= b.priority then
             return a.priority < b.priority
         end
-        return a.eta < b.eta
+        return a.toNext < b.toNext
+    end
+
+    if #active > 0 then
+        table.sort(active, sortByPriorityThenTime)
+        active[1].reason = "active"
+        return active[1]
+    end
+
+    if #preparing > 0 then
+        table.sort(preparing, sortByPriorityThenTime)
+        preparing[1].reason = "preparing"
+        return preparing[1]
+    end
+
+    table.sort(candidates, function(a, b)
+        if a.toNext ~= b.toNext then
+            return a.toNext < b.toNext
+        end
+        return a.priority < b.priority
     end)
 
-    return candidates[1], gateIn, dungeonIn
+    if candidates[1] then
+        candidates[1].reason = "waiting"
+    end
+
+    return candidates[1]
 end
 
-local function tryPriorityLeave(targetMode, currentMode)
+local function shouldLeaveForCandidate(currentMode, candidate)
     if not LeaveForHigherPriority then
         return false
     end
 
-    if currentMode == "Idle" or currentMode == targetMode then
+    if not candidate or currentMode == "Idle" or currentMode == candidate.name then
         return false
     end
 
-    if os.clock() - PriorityLastLeaveTime < 12 then
+    local currentPriority = getModePriority(currentMode)
+    if candidate.priority >= currentPriority then
         return false
     end
 
-    PriorityLastLeaveTime = os.clock()
+    return candidate.active or candidate.preparing or candidate.toNext <= PREP_LEAVE_BEFORE
+end
+
+local function tryPriorityLeave(targetMode, currentMode, candidate)
+    if os.clock() - PriorityLastLeaveAt < 8 then
+        return false
+    end
+
+    PriorityLastLeaveAt = os.clock()
 
     if currentMode == "Dungeon" then
         local leaveButton = findLeaveButton()
         if leaveButton then
-            setPriorityStatus("Prioridade: saindo da Dungeon para preparar " .. targetMode)
+            setPriorityStatus("Prioridade: saindo da Dungeon para preparar " .. targetMode, true)
             local clicked = robustClickObject(leaveButton)
             if clicked then
                 priorityNotifyOnce(
-                    "priority_leave_" .. targetMode,
+                    "priority_leave_" .. tostring(targetMode) .. "_" .. tostring(candidate and candidate.eventKey or "event"),
                     "PRIORIDADE",
-                    "Saiu da Dungeon para preparar " .. targetMode,
-                    4
+                    "Saiu da Dungeon para priorizar " .. targetMode,
+                    4,
+                    20
                 )
                 CurrentPriorityMode = "Idle"
                 return true
@@ -1480,11 +1571,11 @@ local function tryPriorityLeave(targetMode, currentMode)
         end
     end
 
-    setPriorityStatus("Prioridade: " .. targetMode .. " esta perto, mas nao achei saida segura do modo atual.")
+    setPriorityStatus("Prioridade: " .. targetMode .. " e mais importante, mas nao achei uma saida segura de " .. tostring(currentMode), true)
     return false
 end
 
-local function startGateByPriority()
+local function startGateByPriority(candidate)
     CurrentPriorityMode = "Gate"
 
     if not PriorityGateDetectorStarted then
@@ -1492,65 +1583,93 @@ local function startGateByPriority()
         task.spawn(setupGateDetector)
     end
 
-    task.spawn(scanCurrentGates)
-
-    priorityNotifyOnce(
-        "priority_start_gate",
-        "PRIORIDADE",
-        "Gate esta dentro da janela. Detector acionado.",
-        3
-    )
+    local actionKey = "start_gate_" .. tostring(candidate and candidate.eventKey or "event")
+    if priorityActionAllowed(actionKey, 12) then
+        task.spawn(scanCurrentGates)
+        priorityNotifyOnce(
+            "priority_start_gate_" .. tostring(candidate and candidate.eventKey or "event"),
+            "PRIORIDADE",
+            "Gate esta na janela de entrada. Detector acionado.",
+            3,
+            20
+        )
+    end
 end
 
-local function startDungeonByPriority()
+local function startDungeonByPriority(candidate)
     CurrentPriorityMode = "Dungeon"
 
-    priorityNotifyOnce(
-        "priority_start_dungeon",
-        "PRIORIDADE",
-        "Dungeon esta dentro da janela. Auto Dungeon ja pode agir.",
-        3
-    )
+    local actionKey = "start_dungeon_" .. tostring(candidate and candidate.eventKey or "event")
+    if priorityActionAllowed(actionKey, 12) then
+        priorityNotifyOnce(
+            "priority_start_dungeon_" .. tostring(candidate and candidate.eventKey or "event"),
+            "PRIORIDADE",
+            "Dungeon esta na janela de entrada. Auto Dungeon pode aceitar o convite.",
+            3,
+            20
+        )
+    end
+end
+
+local function describePriorityTiming(gateTiming, dungeonTiming)
+    local gateText = gateTiming and (gateTiming.active and ("agora +" .. formatPrioritySeconds(gateTiming.sinceLast)) or ("em " .. formatPrioritySeconds(gateTiming.toNext))) or "OFF"
+    local dungeonText = dungeonTiming and (dungeonTiming.active and ("agora +" .. formatPrioritySeconds(dungeonTiming.sinceLast)) or ("em " .. formatPrioritySeconds(dungeonTiming.toNext))) or "OFF"
+    return gateText, dungeonText
 end
 
 local function prioritySchedulerLoop()
-    while scriptActive() and task.wait(1) do
+    while scriptActive() and task.wait(PRIORITY_LOOP_INTERVAL) do
         if not PrioritySystemEnabled then
             setPriorityStatus("Sistema de prioridade desativado")
             continue
         end
 
-        local winner, gateIn, dungeonIn = pickNextByPriority()
+        local candidates, gateTiming, dungeonTiming = buildPriorityCandidates()
+        local gateText, dungeonText = describePriorityTiming(gateTiming, dungeonTiming)
         local currentMode = detectCurrentPriorityMode()
         CurrentPriorityMode = currentMode
 
+        if #candidates == 0 then
+            setPriorityStatus("Sem candidato ativo | Gate: " .. gateText .. " | Dungeon: " .. dungeonText)
+            continue
+        end
+
+        local winner = choosePriorityCandidate(candidates)
         if not winner then
-            setPriorityStatus(("Sem candidato | Gate:%ds | Dungeon:%ds"):format(math.floor(gateIn), math.floor(dungeonIn)))
+            setPriorityStatus("Nenhum vencedor definido | Gate: " .. gateText .. " | Dungeon: " .. dungeonText)
             continue
         end
 
-        local statusText = ("Escolhido: %s em %ds | Gate:%ds P%d | Dungeon:%ds P%d | Atual:%s")
+        local phaseText = "Aguardando"
+        if winner.reason == "active" then
+            phaseText = "Entrando agora"
+        elseif winner.reason == "preparing" then
+            phaseText = "Preparando entrada"
+        end
+
+        setPriorityStatus(
+            ("%s: %s | Atual: %s | Gate: %s P%d | Dungeon: %s P%d")
             :format(
+                phaseText,
                 winner.name,
-                math.floor(winner.eta),
-                math.floor(gateIn),
+                currentMode,
+                gateText,
                 Priority.Gate,
-                math.floor(dungeonIn),
-                Priority.Dungeon,
-                currentMode
+                dungeonText,
+                Priority.Dungeon
             )
-        setPriorityStatus(statusText)
+        )
 
-        if currentMode ~= "Idle" and currentMode ~= winner.name and winner.eta <= PREP_LEAVE_BEFORE then
-            tryPriorityLeave(winner.name, currentMode)
+        if shouldLeaveForCandidate(currentMode, winner) then
+            tryPriorityLeave(winner.name, currentMode, winner)
             continue
         end
 
-        if currentMode == "Idle" and inStartWindow(winner.eta) then
+        if currentMode == "Idle" and winner.active then
             if winner.name == "Gate" then
-                startGateByPriority()
+                startGateByPriority(winner)
             elseif winner.name == "Dungeon" then
-                startDungeonByPriority()
+                startDungeonByPriority(winner)
             end
         end
     end
@@ -1559,8 +1678,8 @@ end
 -- UI do sistema de prioridade
 AddSpace(Tabs.Settings)
 Tabs.Settings:AddParagraph({
-    Title = "========== PRIORIDADE DE ENTRADA ==========" ,
-    Content = "Escolhe entre Gate e Dungeon usando prioridade e horario. Menor numero = mais importante."
+    Title = "========== PRIORIDADE DE ENTRADA V2 ==========" ,
+    Content = "Gate a cada 10min e Dungeon a cada 15min. Quando batem juntos, menor prioridade numerica ganha."
 })
 
 PriorityStatus = Tabs.Settings:AddParagraph({
@@ -1570,21 +1689,21 @@ PriorityStatus = Tabs.Settings:AddParagraph({
 
 Tabs.Settings:AddToggle("PrioritySystemToggle", {
     Title = "Ativar Prioridade de Entrada",
-    Description = "Controla qual modo deve ter preferencia de entrada.",
+    Description = "Gerencia Gate/Dungeon por horario real, prioridade e anti-spam.",
     Default = false,
     Callback = function(state)
         PrioritySystemEnabled = state
-        setPriorityStatus(state and "Sistema de prioridade ativado" or "Sistema de prioridade desativado")
+        setPriorityStatus(state and "Sistema de prioridade V2 ativado" or "Sistema de prioridade desativado", true)
     end
 })
 
 Tabs.Settings:AddToggle("LeaveForHigherPriorityToggle", {
     Title = "Sair por prioridade maior",
-    Description = "Se um modo mais importante estiver perto, tenta sair do modo atual sem repetir spam.",
+    Description = "Se um modo mais importante estiver começando, tenta sair do modo atual sem desligar seus toggles.",
     Default = true,
     Callback = function(state)
         LeaveForHigherPriority = state
-        setPriorityStatus(state and "Sair por prioridade maior: ON" or "Sair por prioridade maior: OFF")
+        setPriorityStatus(state and "Sair por prioridade maior: ON" or "Sair por prioridade maior: OFF", true)
     end
 })
 
@@ -1594,7 +1713,7 @@ Tabs.Settings:AddDropdown("GatePriority", {
     Default = tostring(Priority.Gate),
     Callback = function(value)
         Priority.Gate = tonumber(value) or 1
-        setPriorityStatus("Prioridade do Gate: " .. tostring(Priority.Gate))
+        setPriorityStatus("Prioridade do Gate: " .. tostring(Priority.Gate), true)
     end
 })
 
@@ -1604,13 +1723,39 @@ Tabs.Settings:AddDropdown("DungeonPriority", {
     Default = tostring(Priority.Dungeon),
     Callback = function(value)
         Priority.Dungeon = tonumber(value) or 2
-        setPriorityStatus("Prioridade da Dungeon: " .. tostring(Priority.Dungeon))
+        setPriorityStatus("Prioridade da Dungeon: " .. tostring(Priority.Dungeon), true)
+    end
+})
+
+Tabs.Settings:AddSlider("PriorityStartWindow", {
+    Title = "Janela de entrada (segundos)",
+    Description = "Quanto tempo depois do horario exato ainda conta como entrada.",
+    Min = 15,
+    Max = 180,
+    Default = START_WINDOW,
+    Rounding = 0,
+    Callback = function(value)
+        START_WINDOW = math.floor(value)
+        setPriorityStatus("Janela de entrada: " .. tostring(START_WINDOW) .. "s", true)
+    end
+})
+
+Tabs.Settings:AddSlider("PriorityPrepLeave", {
+    Title = "Preparar saida antes (segundos)",
+    Description = "Quanto tempo antes de um modo prioritario tentar sair do modo atual.",
+    Min = 5,
+    Max = 90,
+    Default = PREP_LEAVE_BEFORE,
+    Rounding = 0,
+    Callback = function(value)
+        PREP_LEAVE_BEFORE = math.floor(value)
+        setPriorityStatus("Preparar saida: " .. tostring(PREP_LEAVE_BEFORE) .. "s", true)
     end
 })
 
 Tabs.Settings:AddParagraph({
-    Title = "Horarios usados",
-    Content = "Gate: a cada 10min (:00,:10,:20,:30,:40,:50) | Dungeon: a cada 15min (:00,:15,:30,:45) | Janela: 75s | Preparar saida: 30s"
+    Title = "Como funciona",
+    Content = "Gate: a cada 10min | Dungeon: a cada 15min | Coincidencia exemplo :30: menor numero ganha | Nao desliga seus toggles principais."
 })
 
 -- ========== SISTEMA DE AUTO BALL ==========
