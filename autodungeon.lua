@@ -130,8 +130,8 @@ local Priority = {
     Dungeon = 2,
     TimelessRaid = 3
 }
-local GateMinutes = {10, 20, 30}
-local DungeonMinutes = {15, 45}
+local GateMinutes = {0, 10, 20, 30, 40, 50}
+local DungeonMinutes = {0, 15, 30, 45}
 local START_WINDOW = 75
 local PREP_LEAVE_BEFORE = 30
 local CurrentPriorityMode = "Idle"
@@ -1570,7 +1570,7 @@ Tabs.Settings:AddDropdown("DungeonPriority", {
 
 Tabs.Settings:AddParagraph({
     Title = "Horarios usados",
-    Content = "Gate: :10, :20, :30 | Dungeon: :15, :45 | Janela: 75s | Preparar saida: 30s"
+    Content = "Gate: a cada 10min (:00,:10,:20,:30,:40,:50) | Dungeon: a cada 15min (:00,:15,:30,:45) | Janela: 75s | Preparar saida: 30s"
 })
 
 -- ========== SISTEMA DE AUTO BALL ==========
