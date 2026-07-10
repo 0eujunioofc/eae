@@ -193,6 +193,10 @@ local PriorityDebugEnabled = true
 local PriorityDebugLines = {}
 local PriorityDebugLastLine = ""
 local PriorityDebugLastAt = 0
+local PriorityPendingGateAfterLeave = false
+local PriorityPendingGateKey = ""
+local PriorityPendingGateStartedAt = 0
+local PRIORITY_EXIT_WAIT_TIMEOUT = 18
 
 -- VARIÁVEIS DO AUTO BALL
 local AutoBallEnabled = false
@@ -1320,7 +1324,7 @@ Tabs.Main:AddButton({
         })
     end
 })
--- ========== SISTEMA DE PRIORIDADE DE ENTRADA V3 ==========
+-- ========== SISTEMA DE PRIORIDADE DE ENTRADA V4 ==========
 local function setPriorityStatus(text, force)
     if not PriorityStatus then
         return
@@ -1514,6 +1518,12 @@ local function isPlayerInDungeonByGui()
     return false
 end
 
+local function isTeleportLoadingVisible()
+    local windows = LocalPlayer.PlayerGui:FindFirstChild("Windows")
+    local loading = windows and windows:FindFirstChild("TeleportLoading")
+    return isGuiObjectVisible(loading)
+end
+
 local function hasChildrenFolderWithEnemies(rootName)
     local root = workspace:FindFirstChild(rootName)
     if not root then
@@ -1531,7 +1541,12 @@ local function hasChildrenFolderWithEnemies(rootName)
 end
 
 local function detectCurrentPriorityMode()
-    -- V3: nao usa DungeonArenas sozinho, porque a pasta pode existir mesmo fora da dungeon.
+    -- V4: se ainda esta carregando/saindo, nao tenta iniciar outro modo no meio do loading.
+    if isTeleportLoadingVisible() then
+        return "Loading"
+    end
+
+    -- Nao usa DungeonArenas sozinho, porque a pasta pode existir mesmo fora da dungeon.
     if isPlayerInDungeonByGui() then
         return "Dungeon"
     end
@@ -1670,7 +1685,14 @@ local function tryPriorityLeave(targetMode, currentMode, candidate)
                     4,
                     20
                 )
-                CurrentPriorityMode = "Idle"
+                if targetMode == "Gate" then
+                    PriorityPendingGateAfterLeave = true
+                    PriorityPendingGateKey = tostring(candidate and candidate.eventKey or "event")
+                    PriorityPendingGateStartedAt = os.clock()
+                    CurrentPriorityMode = "Leaving"
+                else
+                    CurrentPriorityMode = "Idle"
+                end
                 return true, "clicked"
             end
 
@@ -1703,6 +1725,12 @@ local function forceGateAttemptByPriority(candidate)
         .. " World=" .. tostring(SelectedGateWorld),
         true
     )
+
+    if isTeleportLoadingVisible() or isPlayerInDungeonByGui() then
+        setPriorityStatus("Gate priorizado: aguardando terminar saida/loading antes de tentar entrar.", true)
+        priorityDebugAdd("Gate bloqueado: ainda em Dungeon/loading. Vou aguardar antes de tentar.", true)
+        return false
+    end
 
     if not GateAutomationEnabled then
         setPriorityStatus("Gate priorizado, mas 'Clique Automatico no YES' esta desligado.", true)
@@ -1850,28 +1878,56 @@ local function prioritySchedulerLoop()
             .. " P(G/D)=" .. tostring(Priority.Gate) .. "/" .. tostring(Priority.Dungeon)
         )
 
+        if PriorityPendingGateAfterLeave and winner.name == "Gate" and winner.active then
+            local waited = os.clock() - PriorityPendingGateStartedAt
+
+            if waited > PRIORITY_EXIT_WAIT_TIMEOUT then
+                priorityDebugAdd("Timeout aguardando saida para Gate. Liberando tentativa normal.", true)
+                PriorityPendingGateAfterLeave = false
+                PriorityPendingGateKey = ""
+            elseif currentMode == "Idle" and not isTeleportLoadingVisible() and not isPlayerInDungeonByGui() then
+                priorityDebugAdd("Saida/loading terminou. Agora tentando Gate com seguranca.", true)
+                PriorityPendingGateAfterLeave = false
+                PriorityPendingGateKey = ""
+                startGateByPriority(winner)
+                continue
+            else
+                setPriorityStatus("Gate venceu: aguardando terminar saida/loading antes de entrar. Atual: " .. tostring(currentMode), true)
+                priorityDebugAdd("Aguardando fim da saida antes do Gate | atual=" .. tostring(currentMode) .. " waited=" .. tostring(math.floor(waited)) .. "s")
+                continue
+            end
+        end
+
         if shouldLeaveForCandidate(currentMode, winner) then
             priorityDebugAdd("Decisao: sair do modo atual para " .. tostring(winner.name), true)
             local leaveOk, leaveReason = tryPriorityLeave(winner.name, currentMode, winner)
 
-            -- Se o Gate ja esta ativo, nao fica preso no cooldown/estado antigo de Dungeon.
-            -- Ele tenta o fluxo do Gate mesmo assim, para nao perder a janela de entrada.
-            if not (winner.name == "Gate" and winner.active) then
+            if winner.name == "Gate" and winner.active then
+                setPriorityStatus("Gate venceu: saida solicitada. Aguardando loading terminar antes de tentar Gate.", true)
+                priorityDebugAdd(
+                    "Gate ativo: nao vou tentar entrar ainda; primeiro aguardar saida/loading | leave=" .. tostring(leaveOk) .. " motivo=" .. tostring(leaveReason),
+                    true
+                )
+                if leaveOk then
+                    PriorityPendingGateAfterLeave = true
+                    PriorityPendingGateKey = tostring(winner.eventKey or "event")
+                    PriorityPendingGateStartedAt = os.clock()
+                end
                 continue
             end
 
-            priorityDebugAdd(
-                "Gate ativo: apos tentativa de saida, vou tentar entrada mesmo assim | leave=" .. tostring(leaveOk) .. " motivo=" .. tostring(leaveReason),
-                true
-            )
+            continue
         end
 
-        -- V3: se o Gate venceu e ja esta ativo, tenta entrar mesmo que o estado atual tenha ficado confuso.
-        -- Isso evita perder o Gate depois de sair da Dungeon e voltar ao mundo.
+        -- V4: Gate so tenta iniciar quando o jogador estiver Idle.
+        -- Se ainda estiver em Dungeon/Loading, ele aguarda para evitar "You are already in a raid".
         if winner.name == "Gate" and winner.active then
             priorityDebugAdd("Gate ativo venceu | currentMode=" .. tostring(currentMode), true)
-            if currentMode == "Idle" or currentMode == "Dungeon" then
+            if currentMode == "Idle" then
                 startGateByPriority(winner)
+            elseif currentMode == "Dungeon" or currentMode == "Loading" then
+                setPriorityStatus("Gate venceu, mas ainda esta " .. tostring(currentMode) .. ". Aguardando sair antes de tentar.", true)
+                priorityDebugAdd("Gate aguardando saida/loading | atual=" .. tostring(currentMode), true)
             else
                 priorityDebugAdd("Gate venceu, mas currentMode nao permite start: " .. tostring(currentMode), true)
             end
@@ -1896,7 +1952,7 @@ end
 -- UI do sistema de prioridade
 AddSpace(Tabs.Settings)
 Tabs.Settings:AddParagraph({
-    Title = "========== PRIORIDADE DE ENTRADA V3 ==========" ,
+    Title = "========== PRIORIDADE DE ENTRADA V4 ==========" ,
     Content = "Gate a cada 10min e Dungeon a cada 15min. No mesmo minuto, menor prioridade numerica ganha."
 })
 
@@ -1953,7 +2009,7 @@ Tabs.Settings:AddToggle("PrioritySystemToggle", {
     Default = false,
     Callback = function(state)
         PrioritySystemEnabled = state
-        setPriorityStatus(state and "Sistema de prioridade V3 ativado" or "Sistema de prioridade desativado", true)
+        setPriorityStatus(state and "Sistema de prioridade V4 ativado" or "Sistema de prioridade desativado", true)
     end
 })
 
