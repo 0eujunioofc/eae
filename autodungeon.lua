@@ -1091,9 +1091,14 @@ local function setLeaveInfo(text)
     end
 end
 
+local leaveAlreadyClicked = false
+local leaveClickedRoom = 0
+
 local function autoLeaveLoop()
     while task.wait(1) do
         if not AutoLeaveEnabled then
+            leaveAlreadyClicked = false
+            leaveClickedRoom = 0
             setLeaveInfo("Auto Leave desativado")
             continue
         end
@@ -1101,34 +1106,50 @@ local function autoLeaveLoop()
         local currentRoom = getCurrentDungeonRoom()
 
         if currentRoom <= 0 then
+            leaveAlreadyClicked = false
+            leaveClickedRoom = 0
             setLeaveInfo("Fora da Dungeon (sala: 0)")
             continue
         end
 
-        setLeaveInfo(("Dungeon ativo | Sala atual: %d | Limite: %d"):format(currentRoom, LeaveRoom))
+        if currentRoom < LeaveRoom then
+            leaveAlreadyClicked = false
+            leaveClickedRoom = 0
+            setLeaveInfo(("Dungeon ativo | Sala atual: %d | Limite: %d"):format(currentRoom, LeaveRoom))
+            continue
+        end
 
-        if currentRoom >= LeaveRoom then
-            local leaveButton = findLeaveButton()
+        if leaveAlreadyClicked then
+            setLeaveInfo(("Leave ja clicado na sala %d. Aguardando sair da Dungeon..."):format(leaveClickedRoom))
+            continue
+        end
 
-            if leaveButton then
-                setLeaveInfo(("Botao Leave encontrado. Saindo... (%d >= %d)"):format(currentRoom, LeaveRoom))
+        local leaveButton = findLeaveButton()
 
-                local clicked = robustClickObject(leaveButton)
+        if leaveButton then
+            setLeaveInfo(("Botao Leave encontrado. Saindo... (%d >= %d)"):format(currentRoom, LeaveRoom))
 
-                if clicked then
-                    Fluent:Notify({
-                        Title = "AUTO LEAVE",
-                        Content = ("Saiu da Dungeon na sala %d (limite: %d)"):format(currentRoom, LeaveRoom),
-                        Duration = 5
-                    })
-                    setLeaveInfo("Leave clicado. Aguardando nova Dungeon...")
-                    task.wait(3)
-                else
-                    setLeaveInfo("Falha ao clicar no Leave")
-                end
+            local clicked = robustClickObject(leaveButton)
+
+            if clicked then
+                leaveAlreadyClicked = true
+                leaveClickedRoom = currentRoom
+
+                Fluent:Notify({
+                    Title = "AUTO LEAVE",
+                    Content = ("Saiu da Dungeon na sala %d (limite: %d)"):format(currentRoom, LeaveRoom),
+                    Duration = 5
+                })
+
+                setLeaveInfo("Leave clicado uma vez. Aguardando nova Dungeon...")
+                task.wait(5)
             else
-                setLeaveInfo(("Botao Leave nao encontrado | Sala: %d | Limite: %d"):format(currentRoom, LeaveRoom))
+                setLeaveInfo("Falha ao clicar no Leave")
+                task.wait(2)
             end
+        else
+            setLeaveInfo(("Botao Leave nao encontrado | Sala: %d | Limite: %d"):format(currentRoom, LeaveRoom))
+            task.wait(2)
         end
     end
 end
