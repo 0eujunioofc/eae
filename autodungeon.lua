@@ -1,6 +1,21 @@
 local safeWait = (task and task.wait) or wait
 repeat safeWait() until game:IsLoaded()
 
+-- Anti-duplicacao: quando executar de novo, os loops desta versao antiga param.
+local SCRIPT_TOKEN = tostring(os.clock()) .. "_" .. tostring(math.random(100000, 999999))
+local function getScriptEnv()
+    if typeof(getgenv) == "function" then
+        return getgenv()
+    end
+    return _G
+end
+local SCRIPT_ENV = getScriptEnv()
+SCRIPT_ENV.BR_ANIME_ASTRAL_ACTIVE_TOKEN = SCRIPT_TOKEN
+local function scriptActive()
+    local env = getScriptEnv()
+    return not env or env.BR_ANIME_ASTRAL_ACTIVE_TOKEN == SCRIPT_TOKEN
+end
+
 local Players = game:GetService("Players")
 local VirtualInputManager = game:GetService("VirtualInputManager")
 local GuiService = game:GetService("GuiService")
@@ -32,6 +47,31 @@ local okFluent, Fluent = pcall(fluentFunc)
 if not okFluent or not Fluent then
     warn("Fluent não carregou:", Fluent)
     return
+end
+
+-- Anti-spam de notificacoes: evita varias mensagens iguais empilhadas.
+local NotifyHistory = {}
+local NOTIFY_COOLDOWN = 3
+local RawFluentNotify = Fluent.Notify
+function Fluent:Notify(data)
+    if type(RawFluentNotify) ~= "function" then
+        return nil
+    end
+    if type(data) ~= "table" then
+        return RawFluentNotify(self, data)
+    end
+
+    local title = tostring(data.Title or "")
+    local content = tostring(data.Content or "")
+    local key = title .. "|" .. content
+    local now = os.clock()
+
+    if NotifyHistory[key] and (now - NotifyHistory[key]) < NOTIFY_COOLDOWN then
+        return nil
+    end
+
+    NotifyHistory[key] = now
+    return RawFluentNotify(self, data)
 end
 
 local Window = Fluent:CreateWindow({
@@ -439,7 +479,7 @@ local function findJoinButtons()
 end
 
 local function autoJoinLoop()
-    while task.wait(JoinDetectionInterval) do
+    while scriptActive() and task.wait(JoinDetectionInterval) do
         if not AutoJoinEnabled then
             if JoinStatus then
                 JoinStatus:SetDesc("Auto Join desativado")
@@ -716,7 +756,7 @@ Tabs.Gate:AddToggle("AutoGateToggle", {
     Title = "Detectar Gate Automaticamente", 
     Default = false, 
     Callback = function(state) 
-        if not KeyPassed then
+        if state and not KeyPassed then
             AutoGateEnabled = false
             Fluent:Notify({ Title = "Key necessária", Content = "Digite a key primeiro.", Duration = 3 })
             return
@@ -934,7 +974,7 @@ local function activateArisePrompt(promptInfo)
 end
 
 local function startAriseSystem()
-    while task.wait(AriseCheckInterval) do
+    while scriptActive() and task.wait(AriseCheckInterval) do
         if not AutoAriseEnabled then
             break
         end
@@ -983,7 +1023,7 @@ Tabs.Arise:AddToggle("AutoAriseDetection", {
     Title = "Detectar Arise", 
     Default = false, 
     Callback = function(state) 
-        if not KeyPassed then
+        if state and not KeyPassed then
             AutoAriseEnabled = false
             Fluent:Notify({ Title = "Key necessária", Content = "Digite a key primeiro.", Duration = 3 })
             return
@@ -1039,7 +1079,7 @@ Tabs.Main:AddToggle("AutoDungeon", {
     Title = "Auto Dungeon", 
     Default = false, 
     Callback = function(state) 
-        if not KeyPassed then
+        if state and not KeyPassed then
             AutoDungeonEnabled = false
             Fluent:Notify({ Title = "Key necessária", Content = "Digite a key primeiro.", Duration = 3 })
             return
@@ -1113,7 +1153,7 @@ local leaveAlreadyClicked = false
 local leaveClickedRoom = 0
 
 local function autoLeaveLoop()
-    while task.wait(1) do
+    while scriptActive() and task.wait(1) do
         if not AutoLeaveEnabled then
             leaveAlreadyClicked = false
             leaveClickedRoom = 0
@@ -1191,7 +1231,7 @@ Tabs.Main:AddToggle("AutoLeaveToggle", {
     Description = "Sai da Dungeon automaticamente na sala configurada",
     Default = false,
     Callback = function(state)
-        if not KeyPassed then
+        if state and not KeyPassed then
             AutoLeaveEnabled = false
             Fluent:Notify({
                 Title = "Key necessaria",
@@ -1474,7 +1514,7 @@ local function startDungeonByPriority()
 end
 
 local function prioritySchedulerLoop()
-    while task.wait(1) do
+    while scriptActive() and task.wait(1) do
         if not PrioritySystemEnabled then
             setPriorityStatus("Sistema de prioridade desativado")
             continue
@@ -1603,7 +1643,7 @@ Tabs.Ball:AddToggle("AutoBall", {
     Title = "Ativar Auto Ball", 
     Default = false, 
     Callback = function(state) 
-        if not KeyPassed then
+        if state and not KeyPassed then
             AutoBallEnabled = false
             Fluent:Notify({ Title = "Key necessária", Content = "Digite a key primeiro.", Duration = 3 })
             BallStatus:SetDesc("Digite a key primeiro")
@@ -1722,7 +1762,7 @@ local function collectBall(ballData)
 end
 
 local function collectionLoop()
-    while task.wait(0.1) do
+    while scriptActive() and task.wait(0.1) do
         if not AutoBallEnabled then
             currentTarget = "Nenhum"
             BallStatus:SetDesc("Auto Ball parado")
@@ -1840,7 +1880,7 @@ end
 
 -- Loop principal de farm
 local function farmDungeonLoop()
-    while task.wait(0.5) do
+    while scriptActive() and task.wait(0.5) do
         if not AutoFarmDungeon then
             FarmStatus = "Auto Farm desativado"
             FarmStatusLabel:SetDesc(FarmStatus)
@@ -1896,7 +1936,7 @@ Tabs.Gamemodes:AddToggle("AutoFarmDungeonToggle", {
     Title = "Ativar Auto Farm Dungeon",
     Default = false,
     Callback = function(state)
-        if not KeyPassed then
+        if state and not KeyPassed then
             AutoFarmDungeon = false
             Fluent:Notify({
                 Title = "Key necessária",
@@ -1985,7 +2025,7 @@ Tabs.Gamemodes:AddButton({
 -- ========== LOOP PRINCIPAL DO AUTO DUNGEON ==========
 local lastEmptyTime = tick()
 task.spawn(function()
-    while task.wait(0.03) do
+    while scriptActive() and task.wait(0.03) do
         if not AutoDungeonEnabled then
             StatusLabel:SetDesc("Waiting (Disabled)")
             continue
@@ -2062,7 +2102,7 @@ Tabs.AutoJoin:AddToggle("AutoJoinToggle", {
     Title = "Ativar Auto Join", 
     Default = false, 
     Callback = function(state) 
-        if not KeyPassed then
+        if state and not KeyPassed then
             AutoJoinEnabled = false
             Fluent:Notify({ Title = "Key necessária", Content = "Digite a key primeiro.", Duration = 3 })
             return
@@ -2086,4 +2126,8 @@ Tabs.AutoJoin:AddSlider("JoinInterval", {
 })
 
 Window:SelectTab(2)
-Fluent:Notify({ Title = "✅ Script Carregado", Content = "Sistema PRO completo ativado! Todos os módulos prontos.", Duration = 3 })
+local nowLoadedNotify = os.clock()
+if not SCRIPT_ENV.BR_ANIME_ASTRAL_LAST_LOADED_NOTIFY or (nowLoadedNotify - SCRIPT_ENV.BR_ANIME_ASTRAL_LAST_LOADED_NOTIFY) > 8 then
+    SCRIPT_ENV.BR_ANIME_ASTRAL_LAST_LOADED_NOTIFY = nowLoadedNotify
+    Fluent:Notify({ Title = "✅ Script Carregado", Content = "Sistema PRO completo ativado! Todos os módulos prontos.", Duration = 3 })
+end
