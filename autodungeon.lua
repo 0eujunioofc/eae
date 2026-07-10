@@ -1951,9 +1951,13 @@ local function forceGateAttemptByPriority(candidate)
         true
     )
 
-    if isTeleportLoadingVisible() or isPlayerInDungeonByGui() then
+    local portalRealActive = hasActiveGatePortalByWorld()
+
+    -- V6: se o portal/notify do Gate esta realmente ativo, nao fica preso em GUI/loading antigo.
+    -- Antes ele esperava "sair totalmente", mas alguns GUIs ficam marcados como Dungeon/Loading mesmo com o portal aberto.
+    if (isTeleportLoadingVisible() or isPlayerInDungeonByGui()) and not portalRealActive then
         setPriorityStatus("Gate priorizado: aguardando terminar saida/loading antes de tentar entrar.", true)
-        priorityDebugAdd("Gate bloqueado: ainda em Dungeon/loading. Vou aguardar antes de tentar.", true)
+        priorityDebugAdd("Gate bloqueado: ainda em Dungeon/loading e sem portal real. Vou aguardar antes de tentar.", true)
         return false
     end
 
@@ -2122,6 +2126,12 @@ local function prioritySchedulerLoop()
                 PriorityPendingGateKey = ""
                 startGateByPriority(winner)
                 continue
+            elseif hasActiveGatePortalByWorld() and waited >= 2 then
+                priorityDebugAdd("Portal/notify do Gate esta ativo. Ignorando estado antigo e tentando Gate agora.", true)
+                PriorityPendingGateAfterLeave = false
+                PriorityPendingGateKey = ""
+                startGateByPriority(winner)
+                continue
             else
                 setPriorityStatus("Gate venceu: aguardando terminar saida/loading antes de entrar. Atual: " .. tostring(currentMode), true)
                 priorityDebugAdd("Aguardando fim da saida antes do Gate | atual=" .. tostring(currentMode) .. " waited=" .. tostring(math.floor(waited)) .. "s")
@@ -2134,16 +2144,35 @@ local function prioritySchedulerLoop()
             local leaveOk, leaveReason = tryPriorityLeave(winner.name, currentMode, winner)
 
             if winner.name == "Gate" and winner.active then
-                setPriorityStatus("Gate venceu: saida solicitada. Aguardando loading terminar antes de tentar Gate.", true)
-                priorityDebugAdd(
-                    "Gate ativo: nao vou tentar entrar ainda; primeiro aguardar saida/loading | leave=" .. tostring(leaveOk) .. " motivo=" .. tostring(leaveReason),
-                    true
-                )
                 if leaveOk then
+                    setPriorityStatus("Gate venceu: saida solicitada. Aguardando loading terminar antes de tentar Gate.", true)
+                    priorityDebugAdd(
+                        "Gate ativo: primeiro aguardar saida/loading | leave=" .. tostring(leaveOk) .. " motivo=" .. tostring(leaveReason),
+                        true
+                    )
                     PriorityPendingGateAfterLeave = true
                     PriorityPendingGateKey = tostring(winner.eventKey or "event")
                     PriorityPendingGateStartedAt = os.clock()
+                    continue
                 end
+
+                -- V6: se nao existe saida segura para clicar (Loading/GUI antigo), mas o portal real esta ativo,
+                -- nao perde tempo: tenta Gate agora.
+                if hasActiveGatePortalByWorld() then
+                    setPriorityStatus("Gate venceu e portal/notify esta ativo. Tentando Gate agora.", true)
+                    priorityDebugAdd(
+                        "Gate ativo: sem saida segura, mas portal real esta ON. Tentando entrada | leave=" .. tostring(leaveOk) .. " motivo=" .. tostring(leaveReason),
+                        true
+                    )
+                    startGateByPriority(winner)
+                    continue
+                end
+
+                setPriorityStatus("Gate venceu: aguardando saida/loading antes de tentar Gate.", true)
+                priorityDebugAdd(
+                    "Gate ativo: nao vou tentar entrar ainda; aguardando saida/loading | leave=" .. tostring(leaveOk) .. " motivo=" .. tostring(leaveReason),
+                    true
+                )
                 continue
             end
 
@@ -2155,6 +2184,10 @@ local function prioritySchedulerLoop()
         if winner.name == "Gate" and winner.active then
             priorityDebugAdd("Gate ativo venceu | currentMode=" .. tostring(currentMode), true)
             if currentMode == "Idle" then
+                startGateByPriority(winner)
+            elseif hasActiveGatePortalByWorld() then
+                setPriorityStatus("Gate venceu e portal/notify esta ativo. Tentando entrada mesmo com estado " .. tostring(currentMode) .. ".", true)
+                priorityDebugAdd("Gate ativo real detectado. Ignorando estado antigo: " .. tostring(currentMode), true)
                 startGateByPriority(winner)
             elseif currentMode == "Dungeon" or currentMode == "Loading" then
                 setPriorityStatus("Gate venceu, mas ainda esta " .. tostring(currentMode) .. ". Aguardando sair antes de tentar.", true)
@@ -2183,7 +2216,7 @@ end
 -- UI do sistema de prioridade
 AddSpace(Tabs.Settings)
 Tabs.Settings:AddParagraph({
-    Title = "========== PRIORIDADE DE ENTRADA V5 ==========" ,
+    Title = "========== PRIORIDADE DE ENTRADA V6 ==========" ,
     Content = "Gate a cada 10min e Dungeon a cada 15min. No mesmo minuto, menor prioridade numerica ganha."
 })
 
