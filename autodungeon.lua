@@ -162,6 +162,14 @@ local AutoDungeonEnabled = false
 local AutoLeaveEnabled = false
 local LeaveRoom = 50
 
+-- VARIÁVEIS COMBAT FARM
+local AutoFarmEnabled = false
+local AutoAttackEnabled = false
+local AutoSkillEnabled = false
+local FarmDistance = 6
+local AutoSkillInterval = 0.5
+local LastSkillTime = 0
+
 -- VARIÁVEIS DO SISTEMA DE PRIORIDADE V2
 local PrioritySystemEnabled = false
 local LeaveForHigherPriority = true
@@ -606,7 +614,6 @@ local function tryGateEntryObjectsForWorld(worldNumber)
     return verifyGateEntry()
 end
 
-
 local function isGateRankSelected(rank)
     if not rank then return false end
     return SelectedGateRanks[rank] == true
@@ -935,7 +942,7 @@ local function setupGateDetector()
         end)
 
         for _, card in ipairs(notifyRoot:GetChildren()) do
-            if card.Name:match("^Notify_Raid_") then
+            if card.Name:match("^Notify_Raid_\") then
                 card:GetPropertyChangedSignal("Visible"):Connect(function()
                     if not scriptActive() then return end
                     if card:IsA("GuiObject") and card.Visible then
@@ -1437,1422 +1444,576 @@ local function autoLeaveLoop()
                     Duration = 5
                 })
 
-                setLeaveInfo("Leave clicado uma vez. Aguardando nova Dungeon...")
-                task.wait(5)
+                setLeaveInfo("Leave clicado com sucesso!")
             else
-                setLeaveInfo("Falha ao clicar no Leave")
-                task.wait(2)
+                setLeaveInfo("Falha ao clicar no botao Leave.")
             end
         else
-            setLeaveInfo(("Botao Leave nao encontrado | Sala: %d | Limite: %d"):format(currentRoom, LeaveRoom))
-            task.wait(2)
+            setLeaveInfo("Botao Leave nao encontrado.")
         end
     end
 end
 
--- ========== AUTO LEAVE ==========
-AddSpace(Tabs.Main)
-
-Tabs.Main:AddParagraph({
-    Title = "========== AUTO LEAVE ==========",
-    Content = "[DENTRO DO MODO] Sai automaticamente quando atinge sala especifica"
-})
-
-LeaveInfo = Tabs.Main:AddParagraph({
-    Title = "Status do Auto Leave",
-    Content = "Aguardando Dungeon...",
-    Id = "LeaveInfo"
-})
-
-Tabs.Main:AddToggle("AutoLeaveToggle", {
-    Title = "Ativar Auto Leave",
-    Description = "Sai da Dungeon automaticamente na sala configurada",
-    Default = false,
-    Callback = function(state)
-        if state and not KeyPassed then
-            AutoLeaveEnabled = false
-            Fluent:Notify({
-                Title = "Key necessaria",
-                Content = "Digite a key primeiro.",
-                Duration = 3
-            })
-            return
-        end
-
-        AutoLeaveEnabled = state
-
-        if state then
-            LeaveInfo:SetDesc(("Auto Leave ativado | Sair na sala %d"):format(LeaveRoom))
-            Fluent:Notify({
-                Title = "Auto Leave ativado",
-                Content = ("Saira automaticamente na sala %d."):format(LeaveRoom),
-                Duration = 3
-            })
-        else
-            LeaveInfo:SetDesc("Auto Leave desativado")
-        end
-    end
-})
-
-Tabs.Main:AddSlider("LeaveRoomSlider", {
-    Title = "Sala para sair",
-    Description = "Saira automaticamente quando atingir esta sala",
-    Min = 1,
-    Max = 50,
-    Default = 50,
-    Rounding = 0,
-    Callback = function(value)
-        LeaveRoom = math.floor(value)
-
-        if LeaveInfo then
-            LeaveInfo:SetDesc(("Limite ajustado para sala %d | Atual: %d"):format(LeaveRoom, getCurrentDungeonRoom()))
-        end
-    end
-})
-
-Tabs.Main:AddButton({
-    Title = "Testar deteccao agora",
-    Description = "Verifica sala atual e botao Leave",
-    Callback = function()
-        if not KeyPassed then
-            Fluent:Notify({
-                Title = "Key necessaria",
-                Content = "Digite a key primeiro.",
-                Duration = 3
-            })
-            return
-        end
-
-        local currentRoom = getCurrentDungeonRoom()
-        local leaveButton = findLeaveButton()   
-
-        LeaveInfo:SetDesc(
-            ("Sala atual: %d | Limite: %d | Botao Leave: %s")
-            :format(currentRoom, LeaveRoom, leaveButton and "SIM" or "NAO")
-        )
-
-        Fluent:Notify({
-            Title = "Teste de deteccao",
-            Content = ("Sala: %d | Botao: %s"):format(currentRoom, leaveButton and "Encontrado" or "Nao encontrado"),
-            Duration = 4
-        })
-    end
-})
--- ========== SISTEMA DE PRIORIDADE DE ENTRADA V4 ==========
-local function setPriorityStatus(text, force)
-    if not PriorityStatus then
-        return
-    end
-
-    local now = os.clock()
-    if not force and text == PriorityLastStatusText and (now - PriorityLastStatusAt) < 1 then
-        return
-    end
-
-    PriorityLastStatusText = text
-    PriorityLastStatusAt = now
-
-    pcall(function()
-        PriorityStatus:SetDesc(text)
-    end)
-end
-
-local function priorityDebugAdd(text, force)
-    if not PriorityDebugEnabled then
-        return
-    end
-
-    local now = os.clock()
-    text = tostring(text or "")
-
-    if not force and text == PriorityDebugLastLine and (now - PriorityDebugLastAt) < 2 then
-        return
-    end
-
-    PriorityDebugLastLine = text
-    PriorityDebugLastAt = now
-
-    local line = os.date("%H:%M:%S") .. " | " .. text
-    table.insert(PriorityDebugLines, 1, line)
-
-    while #PriorityDebugLines > 10 do
-        table.remove(PriorityDebugLines)
-    end
-
-    pcall(function()
-        print("[PRIORITY DEBUG] " .. line)
-    end)
-
-    if PriorityDebugLog then
-        pcall(function()
-            PriorityDebugLog:SetDesc(table.concat(PriorityDebugLines, "\n"))
-        end)
-    end
-end
-
-local function priorityBoolText(value)
-    return value and "ON" or "OFF"
-end
-
-local function hasVisibleGateNotify()
-    local notifyRoot = LocalPlayer.PlayerGui:FindFirstChild("HUD")
-        and LocalPlayer.PlayerGui.HUD:FindFirstChild("Main")
-        and LocalPlayer.PlayerGui.HUD.Main:FindFirstChild("GamemodeNotify")
-
-    if not notifyRoot then
-        return false
-    end
-
-    for _, card in ipairs(notifyRoot:GetChildren()) do
-        if card:IsA("GuiObject") and card.Name:match("^Notify_Raid_") and card.Visible then
-            return true
-        end
-    end
-
-    return false
-end
-
-local function formatPrioritySeconds(seconds)
-    seconds = math.max(0, math.floor(tonumber(seconds) or 0))
-    local minutes = math.floor(seconds / 60)
-    local rest = seconds % 60
-    if minutes > 0 then
-        return string.format("%dm%02ds", minutes, rest)
-    end
-    return tostring(rest) .. "s"
-end
-
-local function intervalTiming(intervalSeconds)
-    intervalSeconds = math.max(1, tonumber(intervalSeconds) or 60)
-
-    -- Usa horario real alinhado com o relogio:
-    -- Gate 10min = :00, :10, :20, :30, :40, :50
-    -- Dungeon 15min = :00, :15, :30, :45
-    local now = os.time()
-    local sinceLast = now % intervalSeconds
-    local toNext = (intervalSeconds - sinceLast) % intervalSeconds
-
-    return {
-        sinceLast = sinceLast,
-        toNext = toNext,
-        active = sinceLast <= START_WINDOW,
-        preparing = toNext > 0 and toNext <= PREP_LEAVE_BEFORE,
-        eventIndex = math.floor(now / intervalSeconds)
-    }
-end
-
-local function getModeTiming(modeName)
-    local interval = ModeIntervalSeconds[modeName]
-    if not interval then
+-- COMBAT AUTO FARM IN DUNGEON
+local function findNearestEnemy()
+    local character = LocalPlayer.Character
+    if not character or not character:FindFirstChild("HumanoidRootPart") then
         return nil
     end
-    return intervalTiming(interval)
-end
-
-local function getModePriority(modeName)
-    return Priority[modeName] or 99
-end
-
-local function getPriorityEventKey(modeName, timing)
-    if not timing then
-        return modeName .. "_none"
-    end
-
-    if timing.active then
-        return modeName .. "_active_" .. tostring(timing.eventIndex)
-    end
-
-    return modeName .. "_next_" .. tostring(timing.eventIndex + 1)
-end
-
-local function priorityNotifyOnce(key, title, content, duration, cooldown)
-    local now = os.clock()
-    cooldown = cooldown or 10
-
-    if PriorityLastNotify[key] and (now - PriorityLastNotify[key]) < cooldown then
-        return false
-    end
-
-    PriorityLastNotify[key] = now
-    Fluent:Notify({
-        Title = title,
-        Content = content,
-        Duration = duration or 3
-    })
-    return true
-end
-
-local function priorityActionAllowed(key, cooldown)
-    local now = os.clock()
-    cooldown = cooldown or PRIORITY_ACTION_COOLDOWN
-
-    if PriorityLastAction[key] and (now - PriorityLastAction[key]) < cooldown then
-        return false
-    end
-
-    PriorityLastAction[key] = now
-    return true
-end
-
-local function isGuiObjectVisible(obj)
-    if not obj or not obj:IsA("GuiObject") then
-        return false
-    end
-
-    local ok, visible = pcall(function()
-        return obj.Visible
-    end)
-
-    return ok and visible == true
-end
-
-local function isPlayerInDungeonByGui()
-    local room = 0
-    pcall(function()
-        room = getCurrentDungeonRoom and getCurrentDungeonRoom() or 0
-    end)
-
-    if type(room) == "number" and room > 0 then
-        return true
-    end
-
-    local dungeonGui = LocalPlayer.PlayerGui:FindFirstChild("DungeonGui")
-    local main = dungeonGui and dungeonGui:FindFirstChild("Main")
-    local leaveButton = main and main:FindFirstChild("Leave")
-    local roomLabel = main and main:FindFirstChild("Room")
-
-    if isGuiObjectVisible(leaveButton) then
-        return true
-    end
-
-    if isGuiObjectVisible(roomLabel) then
-        return true
-    end
-
-    return false
-end
-
-local function isTeleportLoadingVisible()
-    local windows = LocalPlayer.PlayerGui:FindFirstChild("Windows")
-    local loading = windows and windows:FindFirstChild("TeleportLoading")
-    return isGuiObjectVisible(loading)
-end
-
-local function hasChildrenFolderWithEnemies(rootName)
-    local root = workspace:FindFirstChild(rootName)
-    if not root then
-        return false
-    end
-
-    for _, arena in ipairs(root:GetChildren()) do
-        local enemies = arena:FindFirstChild("Enemies")
-        if enemies then
-            return true
-        end
-    end
-
-    return false
-end
-
-local function detectCurrentPriorityMode()
-    -- V4: se ainda esta carregando/saindo, nao tenta iniciar outro modo no meio do loading.
-    if isTeleportLoadingVisible() then
-        return "Loading"
-    end
-
-    -- Nao usa DungeonArenas sozinho, porque a pasta pode existir mesmo fora da dungeon.
-    if isPlayerInDungeonByGui() then
-        return "Dungeon"
-    end
-
-    if hasChildrenFolderWithEnemies("RaidArenas") then
-        return "Gate"
-    end
-
-    return "Idle"
-end
-
-local function canRunGate()
-    return KeyPassed and AutoGateEnabled
-end
-
-local function canRunDungeon()
-    return KeyPassed and AutoDungeonEnabled
-end
-
-local function buildPriorityCandidates()
-    local candidates = {}
-    local gateTiming = getModeTiming("Gate")
-    local dungeonTiming = getModeTiming("Dungeon")
-
-    -- V5: o estado real do portal no mapa/notificacao vale mais que o relogio.
-    -- Se o jogo mostrar portal/notify ativo fora do horario exato do Windows, trata Gate como ativo.
-    if gateTiming and hasActiveGatePortalByWorld() then
-        gateTiming.active = true
-        gateTiming.preparing = false
-        gateTiming.toNext = 0
-        gateTiming.sinceLast = 0
-        gateTiming.eventIndex = math.floor(os.time() / math.max(1, ModeIntervalSeconds.Gate or 600))
-    end
-
-    if canRunGate() and gateTiming then
-        table.insert(candidates, {
-            name = "Gate",
-            priority = getModePriority("Gate"),
-            timing = gateTiming,
-            active = gateTiming.active,
-            preparing = gateTiming.preparing,
-            toNext = gateTiming.toNext,
-            sinceLast = gateTiming.sinceLast,
-            eventKey = getPriorityEventKey("Gate", gateTiming)
-        })
-    end
-
-    if canRunDungeon() and dungeonTiming then
-        table.insert(candidates, {
-            name = "Dungeon",
-            priority = getModePriority("Dungeon"),
-            timing = dungeonTiming,
-            active = dungeonTiming.active,
-            preparing = dungeonTiming.preparing,
-            toNext = dungeonTiming.toNext,
-            sinceLast = dungeonTiming.sinceLast,
-            eventKey = getPriorityEventKey("Dungeon", dungeonTiming)
-        })
-    end
-
-    return candidates, gateTiming, dungeonTiming
-end
-
-local function choosePriorityCandidate(candidates)
-    local urgent = {}
-
-    for _, candidate in ipairs(candidates) do
-        if candidate.active or candidate.preparing then
-            table.insert(urgent, candidate)
-        end
-    end
-
-    local function sortByPriorityThenPhaseThenTime(a, b)
-        if a.priority ~= b.priority then
-            return a.priority < b.priority
-        end
-
-        -- Mesma prioridade: o que ja esta ativo vem antes do que ainda esta preparando.
-        if a.active ~= b.active then
-            return a.active == true
-        end
-
-        return a.toNext < b.toNext
-    end
-
-    if #urgent > 0 then
-        table.sort(urgent, sortByPriorityThenPhaseThenTime)
-        urgent[1].reason = urgent[1].active and "active" or "preparing"
-        return urgent[1]
-    end
-
-    table.sort(candidates, function(a, b)
-        if a.priority ~= b.priority then
-            return a.priority < b.priority
-        end
-        return a.toNext < b.toNext
-    end)
-
-    if candidates[1] then
-        candidates[1].reason = "waiting"
-    end
-
-    return candidates[1]
-end
-
-local function shouldLeaveForCandidate(currentMode, candidate)
-    if not LeaveForHigherPriority then
-        return false
-    end
-
-    if not candidate or currentMode == "Idle" or currentMode == candidate.name then
-        return false
-    end
-
-    local currentPriority = getModePriority(currentMode)
-    if candidate.priority >= currentPriority then
-        return false
-    end
-
-    return candidate.active or candidate.preparing or candidate.toNext <= PREP_LEAVE_BEFORE
-end
-
-local function tryPriorityLeave(targetMode, currentMode, candidate)
-    local now = os.clock()
-
-    if now - PriorityLastLeaveAt < PRIORITY_LEAVE_COOLDOWN then
-        priorityDebugAdd("Saida em cooldown curto, nao vou spammar clique | atual=" .. tostring(currentMode) .. " alvo=" .. tostring(targetMode))
-        return false, "cooldown"
-    end
-
-    PriorityLastLeaveAt = now
-    priorityDebugAdd("Tentando sair por prioridade | atual=" .. tostring(currentMode) .. " alvo=" .. tostring(targetMode), true)
-
-    if currentMode == "Dungeon" then
-        local leaveButton = findLeaveButton()
-        priorityDebugAdd("Botao Leave detectado: " .. priorityBoolText(leaveButton ~= nil), true)
-        if leaveButton then
-            setPriorityStatus("Prioridade: saindo da Dungeon para preparar " .. targetMode, true)
-            local clicked = robustClickObject(leaveButton)
-            priorityDebugAdd("Clique no Leave: " .. priorityBoolText(clicked), true)
-            if clicked then
-                priorityNotifyOnce(
-                    "priority_leave_" .. tostring(targetMode) .. "_" .. tostring(candidate and candidate.eventKey or "event"),
-                    "PRIORIDADE",
-                    "Tentou sair da Dungeon para priorizar " .. targetMode,
-                    4,
-                    20
-                )
-                if targetMode == "Gate" then
-                    PriorityPendingGateAfterLeave = true
-                    PriorityPendingGateKey = tostring(candidate and candidate.eventKey or "event")
-                    PriorityPendingGateStartedAt = os.clock()
-                    CurrentPriorityMode = "Leaving"
-                else
-                    CurrentPriorityMode = "Idle"
-                end
-                return true, "clicked"
-            end
-
-            return false, "click_failed"
-        end
-
-        return false, "leave_not_found"
-    end
-
-    setPriorityStatus("Prioridade: " .. targetMode .. " e mais importante, mas nao achei uma saida segura de " .. tostring(currentMode), true)
-    return false, "no_safe_exit"
-end
-
-local function ensureGateDetectorByPriority()
-    if not PriorityGateDetectorStarted then
-        PriorityGateDetectorStarted = true
-        priorityDebugAdd("Detector do Gate iniciado pela prioridade", true)
-        task.spawn(setupGateDetector)
-    else
-        priorityDebugAdd("Detector do Gate ja estava iniciado")
-    end
-end
-
-local function forceGateAttemptByPriority(candidate)
-    priorityDebugAdd(
-        "Gate tentativa | AutoGate=" .. priorityBoolText(AutoGateEnabled)
-        .. " YES=" .. priorityBoolText(GateAutomationEnabled)
-        .. " Notify=" .. priorityBoolText(hasVisibleGateNotify())
-        .. " RaidStation=" .. priorityBoolText(getRaidStationForWorld(SelectedGateWorld) ~= nil)
-        .. " PortalReal=" .. priorityBoolText(hasActiveGatePortalByWorld())
-        .. " World=" .. tostring(SelectedGateWorld),
-        true
-    )
-
-    local portalRealActive = hasActiveGatePortalByWorld()
-
-    -- V6: se o portal/notify do Gate esta realmente ativo, nao fica preso em GUI/loading antigo.
-    -- Antes ele esperava "sair totalmente", mas alguns GUIs ficam marcados como Dungeon/Loading mesmo com o portal aberto.
-    if (isTeleportLoadingVisible() or isPlayerInDungeonByGui()) and not portalRealActive then
-        setPriorityStatus("Gate priorizado: aguardando terminar saida/loading antes de tentar entrar.", true)
-        priorityDebugAdd("Gate bloqueado: ainda em Dungeon/loading e sem portal real. Vou aguardar antes de tentar.", true)
-        return false
-    end
-
-    if not GateAutomationEnabled then
-        setPriorityStatus("Gate priorizado, mas 'Clique Automatico no YES' esta desligado.", true)
-        priorityNotifyOnce(
-            "priority_gate_yes_off_" .. tostring(candidate and candidate.eventKey or "event"),
-            "PRIORIDADE",
-            "Gate venceu, mas ligue 'Clique Automatico no YES' para entrar sozinho.",
-            4,
-            20
-        )
-        return false
-    end
-
-    local actionKey = "force_gate_" .. tostring(candidate and candidate.eventKey or "event")
-    if not priorityActionAllowed(actionKey, 1.2) then
-        return false
-    end
-
-    local success = false
-
-    pcall(function()
-        -- 1) tenta aceitar notificacao que ja esta aberta
-        success = clickYesInCurrentGateNotify()
-        priorityDebugAdd("Gate passo 1 notify aberto: " .. priorityBoolText(success), true)
-
-        -- 2) se ainda nao foi, forca uma varredura e tenta aceitar de novo
-        if not success then
-            scanCurrentGates()
-            task.wait(0.25)
-            success = clickYesInCurrentGateNotify()
-            priorityDebugAdd("Gate passo 2 scan + notify: " .. priorityBoolText(success), true)
-        end
-
-        -- 3) se perdeu a notificacao, tenta os objetos reais do mundo: RaidStation, SpawnGate e Teleporter
-        if not success then
-            success = tryGateEntryObjectsForWorld(SelectedGateWorld)
-            priorityDebugAdd("Gate passo 3 objetos do mundo: " .. priorityBoolText(success), true)
-        end
-
-        -- 4) fallback antigo
-        if not success then
-            success = findAndActivateSpawnGate()
-            priorityDebugAdd("Gate passo 4 RaidStation fallback antigo: " .. priorityBoolText(success), true)
-        end
-    end)
-
-    if success then
-        priorityNotifyOnce(
-            "priority_gate_success_" .. tostring(candidate and candidate.eventKey or "event"),
-            "PRIORIDADE",
-            "Gate priorizado e tentativa de entrada acionada.",
-            4,
-            20
-        )
-        setPriorityStatus("Gate priorizado: tentativa de entrada acionada.", true)
-    else
-        setPriorityStatus("Gate priorizado, mas nao achei notificacao/portal valido ainda.", true)
-    end
-
-    return success
-end
-
-local function startGateByPriority(candidate)
-    CurrentPriorityMode = "Gate"
-    priorityDebugAdd("Start Gate por prioridade | evento=" .. tostring(candidate and candidate.eventKey or "event"), true)
-    ensureGateDetectorByPriority()
-
-    local actionKey = "start_gate_" .. tostring(candidate and candidate.eventKey or "event")
-    if priorityActionAllowed(actionKey, 12) then
-        setPriorityStatus("Gate venceu a prioridade. Procurando notificacao/portal...", true)
-        task.spawn(function()
-            if scriptActive() then
-                forceGateAttemptByPriority(candidate)
-            end
-        end)
-    end
-end
-
-local function startDungeonByPriority(candidate)
-    CurrentPriorityMode = "Dungeon"
-    priorityDebugAdd("Start Dungeon por prioridade | evento=" .. tostring(candidate and candidate.eventKey or "event"), true)
-
-    local actionKey = "start_dungeon_" .. tostring(candidate and candidate.eventKey or "event")
-    if priorityActionAllowed(actionKey, 12) then
-        priorityNotifyOnce(
-            "priority_start_dungeon_" .. tostring(candidate and candidate.eventKey or "event"),
-            "PRIORIDADE",
-            "Dungeon esta na janela de entrada. Auto Dungeon pode aceitar o convite.",
-            3,
-            20
-        )
-    end
-end
-
-local function describePriorityTiming(gateTiming, dungeonTiming)
-    local gateText = gateTiming and (gateTiming.active and ("agora +" .. formatPrioritySeconds(gateTiming.sinceLast)) or ("em " .. formatPrioritySeconds(gateTiming.toNext))) or "OFF"
-    local dungeonText = dungeonTiming and (dungeonTiming.active and ("agora +" .. formatPrioritySeconds(dungeonTiming.sinceLast)) or ("em " .. formatPrioritySeconds(dungeonTiming.toNext))) or "OFF"
-    return gateText, dungeonText
-end
-
-local function prioritySchedulerLoop()
-    while scriptActive() and task.wait(PRIORITY_LOOP_INTERVAL) do
-        if not PrioritySystemEnabled then
-            setPriorityStatus("Sistema de prioridade desativado")
-            continue
-        end
-
-        local candidates, gateTiming, dungeonTiming = buildPriorityCandidates()
-        local gateText, dungeonText = describePriorityTiming(gateTiming, dungeonTiming)
-        local currentMode = detectCurrentPriorityMode()
-        CurrentPriorityMode = currentMode
-
-        if #candidates == 0 then
-            setPriorityStatus("Sem candidato ativo | Gate: " .. gateText .. " | Dungeon: " .. dungeonText .. " | Confira Key/Auto Gate/Auto Dungeon")
-            priorityDebugAdd("Sem candidato | Key=" .. priorityBoolText(KeyPassed) .. " AutoGate=" .. priorityBoolText(AutoGateEnabled) .. " AutoDungeon=" .. priorityBoolText(AutoDungeonEnabled))
-            continue
-        end
-
-        local winner = choosePriorityCandidate(candidates)
-        if not winner then
-            setPriorityStatus("Nenhum vencedor definido | Gate: " .. gateText .. " | Dungeon: " .. dungeonText)
-            continue
-        end
-
-        local phaseText = "Aguardando"
-        if winner.reason == "active" then
-            phaseText = "Entrando agora"
-        elseif winner.reason == "preparing" then
-            phaseText = "Preparando entrada"
-        end
-
-        setPriorityStatus(
-            ("%s: %s | Atual: %s | Gate: %s P%d | Dungeon: %s P%d")
-            :format(
-                phaseText,
-                winner.name,
-                currentMode,
-                gateText,
-                Priority.Gate,
-                dungeonText,
-                Priority.Dungeon
-            )
-        )
-
-        priorityDebugAdd(
-            "Winner=" .. tostring(winner.name)
-            .. " fase=" .. tostring(winner.reason)
-            .. " atual=" .. tostring(currentMode)
-            .. " Gate=" .. tostring(gateText)
-            .. " Dungeon=" .. tostring(dungeonText)
-            .. " P(G/D)=" .. tostring(Priority.Gate) .. "/" .. tostring(Priority.Dungeon)
-        )
-
-        if PriorityPendingGateAfterLeave and winner.name == "Gate" and winner.active then
-            local waited = os.clock() - PriorityPendingGateStartedAt
-
-            if waited > PRIORITY_EXIT_WAIT_TIMEOUT then
-                priorityDebugAdd("Timeout aguardando saida para Gate. Liberando tentativa normal.", true)
-                PriorityPendingGateAfterLeave = false
-                PriorityPendingGateKey = ""
-            elseif currentMode == "Idle" and not isTeleportLoadingVisible() and not isPlayerInDungeonByGui() then
-                priorityDebugAdd("Saida/loading terminou. Agora tentando Gate com seguranca.", true)
-                PriorityPendingGateAfterLeave = false
-                PriorityPendingGateKey = ""
-                startGateByPriority(winner)
-                continue
-            elseif hasActiveGatePortalByWorld() and waited >= 2 then
-                priorityDebugAdd("Portal/notify do Gate esta ativo. Ignorando estado antigo e tentando Gate agora.", true)
-                PriorityPendingGateAfterLeave = false
-                PriorityPendingGateKey = ""
-                startGateByPriority(winner)
-                continue
-            else
-                setPriorityStatus("Gate venceu: aguardando terminar saida/loading antes de entrar. Atual: " .. tostring(currentMode), true)
-                priorityDebugAdd("Aguardando fim da saida antes do Gate | atual=" .. tostring(currentMode) .. " waited=" .. tostring(math.floor(waited)) .. "s")
-                continue
-            end
-        end
-
-        if shouldLeaveForCandidate(currentMode, winner) then
-            priorityDebugAdd("Decisao: sair do modo atual para " .. tostring(winner.name), true)
-            local leaveOk, leaveReason = tryPriorityLeave(winner.name, currentMode, winner)
-
-            if winner.name == "Gate" and winner.active then
-                if leaveOk then
-                    setPriorityStatus("Gate venceu: saida solicitada. Aguardando loading terminar antes de tentar Gate.", true)
-                    priorityDebugAdd(
-                        "Gate ativo: primeiro aguardar saida/loading | leave=" .. tostring(leaveOk) .. " motivo=" .. tostring(leaveReason),
-                        true
-                    )
-                    PriorityPendingGateAfterLeave = true
-                    PriorityPendingGateKey = tostring(winner.eventKey or "event")
-                    PriorityPendingGateStartedAt = os.clock()
-                    continue
-                end
-
-                -- V6: se nao existe saida segura para clicar (Loading/GUI antigo), mas o portal real esta ativo,
-                -- nao perde tempo: tenta Gate agora.
-                if hasActiveGatePortalByWorld() then
-                    setPriorityStatus("Gate venceu e portal/notify esta ativo. Tentando Gate agora.", true)
-                    priorityDebugAdd(
-                        "Gate ativo: sem saida segura, mas portal real esta ON. Tentando entrada | leave=" .. tostring(leaveOk) .. " motivo=" .. tostring(leaveReason),
-                        true
-                    )
-                    startGateByPriority(winner)
-                    continue
-                end
-
-                setPriorityStatus("Gate venceu: aguardando saida/loading antes de tentar Gate.", true)
-                priorityDebugAdd(
-                    "Gate ativo: nao vou tentar entrar ainda; aguardando saida/loading | leave=" .. tostring(leaveOk) .. " motivo=" .. tostring(leaveReason),
-                    true
-                )
-                continue
-            end
-
-            continue
-        end
-
-        -- V4: Gate so tenta iniciar quando o jogador estiver Idle.
-        -- Se ainda estiver em Dungeon/Loading, ele aguarda para evitar "You are already in a raid".
-        if winner.name == "Gate" and winner.active then
-            priorityDebugAdd("Gate ativo venceu | currentMode=" .. tostring(currentMode), true)
-            if currentMode == "Idle" then
-                startGateByPriority(winner)
-            elseif hasActiveGatePortalByWorld() then
-                setPriorityStatus("Gate venceu e portal/notify esta ativo. Tentando entrada mesmo com estado " .. tostring(currentMode) .. ".", true)
-                priorityDebugAdd("Gate ativo real detectado. Ignorando estado antigo: " .. tostring(currentMode), true)
-                startGateByPriority(winner)
-            elseif currentMode == "Dungeon" or currentMode == "Loading" then
-                setPriorityStatus("Gate venceu, mas ainda esta " .. tostring(currentMode) .. ". Aguardando sair antes de tentar.", true)
-                priorityDebugAdd("Gate aguardando saida/loading | atual=" .. tostring(currentMode), true)
-            else
-                priorityDebugAdd("Gate venceu, mas currentMode nao permite start: " .. tostring(currentMode), true)
-            end
-            continue
-        end
-
-        -- Se um modo superior esta em preparacao, nao inicia modo inferior nesse intervalo.
-        if winner.reason == "preparing" then
-            continue
-        end
-
-        if currentMode == "Idle" and winner.active then
-            if winner.name == "Dungeon" then
-                startDungeonByPriority(winner)
-            end
-        elseif winner.active then
-            priorityDebugAdd("Modo ativo venceu, mas atual nao esta Idle | vencedor=" .. tostring(winner.name) .. " atual=" .. tostring(currentMode))
-        end
-    end
-end
-
--- UI do sistema de prioridade
-AddSpace(Tabs.Settings)
-Tabs.Settings:AddParagraph({
-    Title = "========== PRIORIDADE DE ENTRADA V6 ==========" ,
-    Content = "Gate a cada 10min e Dungeon a cada 15min. No mesmo minuto, menor prioridade numerica ganha."
-})
-
-PriorityStatus = Tabs.Settings:AddParagraph({
-    Title = "Status da Prioridade",
-    Content = "Sistema de prioridade desativado"
-})
-
-PriorityDebugLog = Tabs.Settings:AddParagraph({
-    Title = "Debug da Prioridade",
-    Content = "Aguardando eventos..."
-})
-
-Tabs.Settings:AddToggle("PriorityDebugToggle", {
-    Title = "Debug da Prioridade",
-    Description = "Mostra o que o sistema decidiu: vencedor, modo atual, notify, YES e RaidStation.",
-    Default = true,
-    Callback = function(state)
-        PriorityDebugEnabled = state
-        if state then
-            priorityDebugAdd("Debug ativado", true)
-        elseif PriorityDebugLog then
-            PriorityDebugLog:SetDesc("Debug desativado")
-        end
-    end
-})
-
-Tabs.Settings:AddButton({
-    Title = "Testar prioridade agora",
-    Description = "Mostra Gate/Dungeon, modo atual e vencedor sem forcar entrada.",
-    Callback = function()
-        local candidates, gateTiming, dungeonTiming = buildPriorityCandidates()
-        local gateText, dungeonText = describePriorityTiming(gateTiming, dungeonTiming)
-        local currentMode = detectCurrentPriorityMode()
-        local winner = choosePriorityCandidate(candidates)
-        local winnerText = winner and (winner.name .. " / " .. tostring(winner.reason)) or "Nenhum"
-
-        priorityDebugAdd(
-            "TESTE MANUAL | vencedor=" .. winnerText
-            .. " atual=" .. tostring(currentMode)
-            .. " Gate=" .. tostring(gateText)
-            .. " Dungeon=" .. tostring(dungeonText)
-            .. " AutoGate=" .. priorityBoolText(AutoGateEnabled)
-            .. " YES=" .. priorityBoolText(GateAutomationEnabled)
-            .. " Notify=" .. priorityBoolText(hasVisibleGateNotify()),
-            true
-        )
-    end
-})
-
-Tabs.Settings:AddToggle("PrioritySystemToggle", {
-    Title = "Ativar Prioridade de Entrada",
-    Description = "Gerencia Gate/Dungeon por horario real, prioridade e anti-spam.",
-    Default = false,
-    Callback = function(state)
-        PrioritySystemEnabled = state
-        setPriorityStatus(state and "Sistema de prioridade V4 ativado" or "Sistema de prioridade desativado", true)
-    end
-})
-
-Tabs.Settings:AddToggle("LeaveForHigherPriorityToggle", {
-    Title = "Sair por prioridade maior",
-    Description = "Se um modo mais importante estiver chegando, tenta sair do modo atual sem desligar seus toggles.",
-    Default = true,
-    Callback = function(state)
-        LeaveForHigherPriority = state
-        setPriorityStatus(state and "Sair por prioridade maior: ON" or "Sair por prioridade maior: OFF", true)
-    end
-})
-
-Tabs.Settings:AddDropdown("GatePriority", {
-    Title = "Prioridade do Gate",
-    Values = { "1", "2", "3", "4", "5" },
-    Default = tostring(Priority.Gate),
-    Callback = function(value)
-        Priority.Gate = tonumber(value) or 1
-        setPriorityStatus("Prioridade do Gate: " .. tostring(Priority.Gate), true)
-    end
-})
-
-Tabs.Settings:AddDropdown("DungeonPriority", {
-    Title = "Prioridade da Dungeon",
-    Values = { "1", "2", "3", "4", "5" },
-    Default = tostring(Priority.Dungeon),
-    Callback = function(value)
-        Priority.Dungeon = tonumber(value) or 2
-        setPriorityStatus("Prioridade da Dungeon: " .. tostring(Priority.Dungeon), true)
-    end
-})
-
-Tabs.Settings:AddSlider("PriorityStartWindow", {
-    Title = "Janela de entrada (segundos)",
-    Description = "Tempo depois do horario exato em que ainda tenta entrar.",
-    Min = 30,
-    Max = 240,
-    Default = START_WINDOW,
-    Rounding = 0,
-    Callback = function(value)
-        START_WINDOW = math.floor(value)
-        setPriorityStatus("Janela de entrada: " .. tostring(START_WINDOW) .. "s", true)
-    end
-})
-
-Tabs.Settings:AddSlider("PriorityPrepLeave", {
-    Title = "Preparar saida antes (segundos)",
-    Description = "Tempo antes de um modo prioritario para tentar sair do modo atual.",
-    Min = 15,
-    Max = 180,
-    Default = PREP_LEAVE_BEFORE,
-    Rounding = 0,
-    Callback = function(value)
-        PREP_LEAVE_BEFORE = math.floor(value)
-        setPriorityStatus("Preparar saida: " .. tostring(PREP_LEAVE_BEFORE) .. "s", true)
-    end
-})
-
-Tabs.Settings:AddParagraph({
-    Title = "Como funciona",
-    Content = "Gate: 10min | Dungeon: 15min | Coincide em :00/:30 | P1 ganha de P2 | Para entrar sozinho no Gate, deixe Auto Gate e Clique YES ligados."
-})
-
--- ========== SISTEMA DE AUTO BALL ==========
-AddBallSection()
-BallStatus = Tabs.Ball:AddParagraph({ Title = "Status", Content = "Auto Ball parado" })
-
-Tabs.Ball:AddSlider("BallRadius", {
-    Title = "Raio de busca", 
-    Min = 300, 
-    Max = 1000, 
-    Default = 650, 
-    Rounding = 0, 
-    Callback = function(value) 
-        BallRadius = value 
-    end
-})
-
-Tabs.Ball:AddSlider("BallCooldown", {
-    Title = "Cooldown", 
-    Min = 0.1, 
-    Max = 2, 
-    Default = 0.4, 
-    Rounding = 1, 
-    Callback = function(value) 
-        BallCooldown = value 
-    end
-})
-
-Tabs.Ball:AddToggle("AutoBall", {
-    Title = "Ativar Auto Ball", 
-    Default = false, 
-    Callback = function(state) 
-        if state and not KeyPassed then
-            AutoBallEnabled = false
-            Fluent:Notify({ Title = "Key necessária", Content = "Digite a key primeiro.", Duration = 3 })
-            BallStatus:SetDesc("Digite a key primeiro")
-            return
-        end
-        AutoBallEnabled = state
-        BallStatus:SetDesc(state and "Auto Ball ligado" or "Auto Ball parado")
-    end
-})
-
--- Funções do Auto Ball
-local function findNearbyBalls()
-    local nearbyBalls = {}
-    if not ensureCharacterAlive() then
-        return nearbyBalls
-    end
-
-    local humanoidRootPart = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-    if not humanoidRootPart then
-        return nearbyBalls
-    end
-
-    local ballsFolder = workspace:FindFirstChild(ballsFolderName)
-    if not ballsFolder then
-        return nearbyBalls
-    end
-
-    local characterPos = humanoidRootPart.Position
-    for _, ballModel in ipairs(ballsFolder:GetChildren()) do
-        local sphere = ballModel:FindFirstChild(sphereName)
-        if sphere and sphere:IsA("BasePart") then
-            local prompt = sphere:FindFirstChild(promptName)
-            if prompt and prompt:IsA("ProximityPrompt") then
-                local distance = (sphere.Position - characterPos).Magnitude
-                if distance <= BallRadius then
-                    table.insert(nearbyBalls, {
-                        model = ballModel,
-                        sphere = sphere,
-                        prompt = prompt,
-                        distance = distance
-                    })
-                end
-            end
-        end
-    end
+    local myPos = character.HumanoidRootPart.Position
+    local nearest = nil
+    local minDist = math.huge
     
-    table.sort(nearbyBalls, function(a, b)
-        return a.distance < b.distance
-    end)
-    
-    return nearbyBalls
-end
-
-local function holdPrompt(prompt)
-    if not prompt or not prompt:IsA("ProximityPrompt") then
-        return false
-    end
-
-    local holdTime = prompt.HoldDuration
-    local success = pcall(function()
-        prompt:InputHoldBegin()
-        task.wait(holdTime + 0.15)
-        prompt:InputHoldEnd()
-    end)
-    return success
-end
-
-local function collectBall(ballData)
-    if not ballData or not ballData.sphere or not ballData.prompt then
-        return false
-    end
-    
-    if not ballData.sphere.Parent or not ballData.model.Parent then
-        return false
-    end
-    
-    if not ensureCharacterAlive() then
-        return false
-    end
-
-    local humanoidRootPart = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-    if not humanoidRootPart then
-        return false
-    end
-
-    local sphere = ballData.sphere
-    local prompt = ballData.prompt
-    local ballModel = ballData.model
-    local distance = (sphere.Position - humanoidRootPart.Position).Magnitude
-    
-    if distance > BallRadius then
-        return false
-    end
-    
-    currentTarget = ballModel.Name
-    BallStatus:SetDesc("Coletando: " .. currentTarget)
-    
-    local targetPosition = sphere.Position + Vector3.new(0, 2.5, 0)
-    local tweenInfo = TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-    local tween = TweenService:Create(humanoidRootPart, tweenInfo, { CFrame = CFrame.new(targetPosition) })
-    tween:Play()
-    tween.Completed:Wait()
-    task.wait(0.15)
-    
-    local activated = holdPrompt(prompt)
-    if activated then
-        for _ = 1, 20 do
-            if not ballModel or not ballModel.Parent then
-                collectedCount += 1
-                return true
-            end
-            task.wait(0.1)
-        end
-    end
-    return false
-end
-
-local function collectionLoop()
-    while scriptActive() and task.wait(0.1) do
-        if not AutoBallEnabled then
-            currentTarget = "Nenhum"
-            BallStatus:SetDesc("Auto Ball parado")
-            continue
-        end
-        
-        if not ensureCharacterAlive() then
-            LocalPlayer.CharacterAdded:Wait()
-            task.wait(1)
-            continue
-        end
-
-        local humanoidRootPart = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-        if not humanoidRootPart then
-            continue
-        end
-
-        local balls = findNearbyBalls()
-        if #balls == 0 then
-            currentTarget = "Nenhuma bola próxima"
-            BallStatus:SetDesc("Procurando bolas...")
-            task.wait(0.5)
-            continue
-        end
-        
-        for _, ballData in ipairs(balls) do
-            if not AutoBallEnabled then
-                break
-            end
-            
-            if not ensureCharacterAlive() then
-                break
-            end
-            
-            if ballData and ballData.sphere and ballData.sphere.Parent then
-                local success = collectBall(ballData)
-                if success then
-                    task.wait(BallCooldown)
-                else
-                    task.wait(0.15)
-                end
-            end
-        end
-    end
-end
-
--- ========== SISTEMA DE AUTO FARM DUNGEON ==========
-AddSpace(Tabs.Gamemodes)
-Tabs.Gamemodes:AddParagraph({
-    Title = "========== AUTO FARM DUNGEON ==========",
-    Content = "[DENTRO DO MODO] Teleporta automaticamente para os NPCs Joker/Sho na Dungeon."
-})
-
--- Variáveis do Auto Farm Dungeon
-local AutoFarmDungeon = false
-local TargetNPCs = { "Joker", "Sho" }
-local FarmRadius = 50
-local FarmCooldown = 1.5
-local FarmStatus = "Aguardando entrada na Dungeon"
-
--- Elemento de status
-local FarmStatusLabel = Tabs.Gamemodes:AddParagraph({
-    Title = "Status do Farm",
-    Content = FarmStatus
-})
-
--- Função para encontrar NPCs da dungeon no ClientEnemyVisuals
-local function findDungeonNPCs()
-    local npcs = {}
-    local clientVisuals = workspace:FindFirstChild("ClientEnemyVisuals")
-    
-    if not clientVisuals then
-        return npcs
-    end
-    
-    for _, npcName in ipairs(TargetNPCs) do
-        local npcModel = clientVisuals:FindFirstChild(npcName)
-        if npcModel and npcModel:IsA("Model") then
-            local hrp = npcModel:FindFirstChild("HumanoidRootPart")
-            local torso = npcModel:FindFirstChild("Torso") or npcModel:FindFirstChild("UpperTorso")
-            local anyPart = npcModel:FindFirstChildWhichIsA("BasePart")
-            
-            local targetPart = hrp or torso or anyPart
-            if targetPart then
-                table.insert(npcs, {
-                    name = npcName,
-                    model = npcModel,
-                    part = targetPart,
-                    position = targetPart.Position
-                })
-            end
-        end
-    end
-    return npcs
-end
-
--- Função para teleportar até um NPC
-local function teleportToNPC(npcInfo)
-    if not ensureCharacterAlive() then
-        return false
-    end
-    
-    local hrp = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-    if not hrp then
-        return false
-    end
-    
-    local targetPos = npcInfo.position + Vector3.new(0, 3, 0)
-    pcall(function()
-        hrp.CFrame = CFrame.new(targetPos)
-    end)
-    
-    return true
-end
-
--- Loop principal de farm
-local function farmDungeonLoop()
-    while scriptActive() and task.wait(0.5) do
-        if not AutoFarmDungeon then
-            FarmStatus = "Auto Farm desativado"
-            FarmStatusLabel:SetDesc(FarmStatus)
-            continue
-        end
-        
-        local inDungeon = false
-        pcall(function()
-            local dungeonArenas = workspace:FindFirstChild("DungeonArenas")
-            if dungeonArenas then
-                for _, arena in ipairs(dungeonArenas:GetChildren()) do
-                    if arena:FindFirstChild("Enemies") then
-                        inDungeon = true
-                        break
-                    end
-                end
-            end
-        end)
-        
-        if not inDungeon then
-            FarmStatus = "Aguardando entrada na Dungeon..."
-            FarmStatusLabel:SetDesc(FarmStatus)
-            continue
-        end
-        
-        local npcs = findDungeonNPCs()
-        
-        if #npcs == 0 then
-            FarmStatus = "Dentro da Dungeon, mas nenhum NPC (Joker/Sho) encontrado."
-            FarmStatusLabel:SetDesc(FarmStatus)
-            task.wait(2)
-            continue
-        end
-        
-        for _, npc in ipairs(npcs) do
-            if not AutoFarmDungeon then
-                break
-            end
-            
-            FarmStatus = string.format("Farmando: %s", npc.name)
-            FarmStatusLabel:SetDesc(FarmStatus)
-            
-            local teleported = teleportToNPC(npc)
-            if teleported then
-                task.wait(FarmCooldown)
-            end
-        end
-    end
-end
-
--- Interface do Auto Farm Dungeon
-Tabs.Gamemodes:AddToggle("AutoFarmDungeonToggle", {
-    Title = "Ativar Auto Farm Dungeon",
-    Default = false,
-    Callback = function(state)
-        if state and not KeyPassed then
-            AutoFarmDungeon = false
-            Fluent:Notify({
-                Title = "Key necessária",
-                Content = "Digite a key primeiro.",
-                Duration = 3
-            })
-            return
-        end
-        
-        AutoFarmDungeon = state
-        FarmStatus = state and "Auto Farm ativado. Aguardando Dungeon..." or "Auto Farm desativado"
-        FarmStatusLabel:SetDesc(FarmStatus)
-        
-        if state then
-            Fluent:Notify({
-                Title = "Auto Farm ativado",
-                Content = "Teleportará para Joker/Sho ao entrar na Dungeon.",
-                Duration = 3
-            })
-            task.spawn(farmDungeonLoop)
-        end
-    end
-})
-
-Tabs.Gamemodes:AddSlider("FarmRadiusSlider", {
-    Title = "Raio de detecção (distância)",
-    Description = "Máximo: 100 (não usado atualmente, mas disponível para lógica futura)",
-    Min = 10,
-    Max = 100,
-    Default = 50,
-    Rounding = 0,
-    Callback = function(value)
-        FarmRadius = value
-        FarmStatusLabel:SetDesc(string.format("Raio ajustado: %d | %s", FarmRadius, FarmStatus))
-    end
-})
-
-Tabs.Gamemodes:AddSlider("FarmCooldownSlider", {
-    Title = "Cooldown entre teleportes (s)",
-    Min = 0.5,
-    Max = 5,
-    Default = 1.5,
-    Rounding = 0.1,
-    Callback = function(value)
-        FarmCooldown = value
-        FarmStatusLabel:SetDesc(string.format("Cooldown: %.1fs | %s", FarmCooldown, FarmStatus))
-    end
-})
-
-Tabs.Gamemodes:AddButton({
-    Title = "🔍 Verificar NPCs agora (Manual)",
-    Description = "Procura Joker/Sho no ClientEnemyVisuals e mostra status.",
-    Callback = function()
-        if not KeyPassed then
-            Fluent:Notify({
-                Title = "Key necessária",
-                Content = "Digite a key primeiro.",
-                Duration = 3
-            })
-            return
-        end
-        
-        local npcs = findDungeonNPCs()
-        if #npcs > 0 then
-            local msg = ""
-            for _, npc in ipairs(npcs) do
-                msg = msg .. string.format("- %s (pos: %s)\n", npc.name, tostring(npc.position))
-            end
-            FarmStatusLabel:SetDesc(string.format("NPCs encontrados (%d):\n%s", #npcs, msg))
-            Fluent:Notify({
-                Title = "NPCs encontrados",
-                Content = string.format("%d NPC(s) localizado(s).", #npcs),
-                Duration = 4
-            })
-        else
-            FarmStatusLabel:SetDesc("Nenhum NPC (Joker/Sho) encontrado no ClientEnemyVisuals.")
-            Fluent:Notify({
-                Title = "NPCs não encontrados",
-                Content = "Verifique se está dentro da Dungeon.",
-                Duration = 4
-            })
-        end
-    end
-})
-
--- ========== LOOP PRINCIPAL DO AUTO DUNGEON ==========
-local lastEmptyTime = tick()
-task.spawn(function()
-    while scriptActive() and task.wait(0.03) do
-        if not AutoDungeonEnabled then
-            StatusLabel:SetDesc("Waiting (Disabled)")
-            continue
-        end
-        
-        pcall(function()
-            local notifyGui = LocalPlayer.PlayerGui:FindFirstChild("HUD")
-            if notifyGui then
-                local notifyDungeon = notifyGui:FindFirstChild("Main") and 
-                    notifyGui.Main:FindFirstChild("GamemodeNotify") and 
-                    notifyGui.Main.GamemodeNotify:FindFirstChild("Notify_Dungeon_World9Dungeon")
-                
-                if notifyDungeon and notifyDungeon.Visible then
-                    local yesBtn = notifyDungeon:FindFirstChild("Actions") and 
-                        notifyDungeon.Actions:FindFirstChild("YES")
-                    
-                    if yesBtn then
-                        StatusLabel:SetDesc("Dungeon notification detected, waiting 0.5s...")
-                        task.wait(0.5)
-                        StatusLabel:SetDesc("Clicking YES...")
-                        robustClickObject(yesBtn)
-                        task.wait(1)
-                    end
-                end
-            end
-        end)
-        
-        local inDungeon = false
-        local dungeonEnemiesFolder = nil
-        
-        pcall(function()
-            local dungeonArenas = workspace:FindFirstChild("DungeonArenas")
-            if dungeonArenas then
-                local w9 = dungeonArenas:FindFirstChild("World9Dungeon")
-                local enemies = w9 and w9:FindFirstChild("Enemies")
-                
-                if enemies then
-                    inDungeon = true
-                    dungeonEnemiesFolder = enemies
-                else
-                    for _, arena in ipairs(dungeonArenas:GetChildren()) do
-                        local enemiesFolder = arena:FindFirstChild("Enemies")
-                        if enemiesFolder then
-                            inDungeon = true
-                            dungeonEnemiesFolder = enemiesFolder
-                            break
+    local targets = {}
+    local raidArenas = workspace:FindFirstChild("RaidArenas")
+    if raidArenas then
+        for _, world in ipairs(raidArenas:GetChildren()) do
+            local enemies = world:FindFirstChild("Enemies")
+            if enemies then
+                for _, enemy in ipairs(enemies:GetChildren()) do
+                    if enemy:IsA("Model") and enemy:FindFirstChild("HumanoidRootPart") then
+                        local hum = enemy:FindFirstChildOfClass("Humanoid")
+                        if hum and hum.Health > 0 then
+                            table.insert(targets, enemy)
                         end
                     end
                 end
             end
-        end)
+        end
+    end
+    
+    -- Dungeon Mobs ou Genéricos no workspace
+    for _, obj in ipairs(workspace:GetChildren()) do
+        if obj:IsA("Model") and obj ~= character and not Players:GetPlayerFromCharacter(obj) then
+            local hrp = obj:FindFirstChild("HumanoidRootPart")
+            local hum = obj:FindFirstChildOfClass("Humanoid")
+            if hrp and hum and hum.Health > 0 then
+                local objName = obj.Name:lower()
+                if objName ~= "npc" and not objName:find("quest") and not objName:find("shop") and not objName:find("teleporter") then
+                    table.insert(targets, obj)
+                end
+            end
+        end
+    end
+    
+    for _, target in ipairs(targets) do
+        local hrp = target.HumanoidRootPart
+        local dist = (hrp.Position - myPos).Magnitude
+        if dist < minDist then
+            minDist = dist
+            nearest = target
+        end
+    end
+    
+    return nearest
+end
+
+local function autoFarmLoop()
+    while scriptActive() and task.wait(0.1) do
+        if not AutoFarmEnabled or not ensureCharacterAlive() then
+            continue
+        end
         
-        if inDungeon and dungeonEnemiesFolder then
-            StatusLabel:SetDesc("Dungeon ativo - farmando inimigos...")
+        local target = findNearestEnemy()
+        if target and target:FindFirstChild("HumanoidRootPart") then
+            local hrp = target.HumanoidRootPart
+            local character = LocalPlayer.Character
+            local myHrp = character and character:FindFirstChild("HumanoidRootPart")
+            
+            if myHrp then
+                pcall(function()
+                    myHrp.CFrame = hrp.CFrame * CFrame.new(0, FarmDistance, 0)
+                end)
+            end
+            
+            -- Auto Attack
+            if AutoAttackEnabled then
+                local tool = LocalPlayer.Backpack:FindFirstChildWhichIsA("Tool") or (character and character:FindFirstChildWhichIsA("Tool"))
+                if tool then
+                    if tool.Parent ~= character then
+                        pcall(function()
+                            character.Humanoid:EquipTool(tool)
+                        end)
+                    end
+                    pcall(function()
+                        tool:Activate()
+                    end)
+                else
+                    pcall(function()
+                        VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 1)
+                        task.wait(0.01)
+                        VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 1)
+                    end)
+                end
+            end
+            
+            -- Auto Skill
+            if AutoSkillEnabled and (os.clock() - LastSkillTime) > AutoSkillInterval then
+                LastSkillTime = os.clock()
+                pcall(function()
+                    VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.One, false, game)
+                    task.wait(0.01)
+                    VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.One, false, game)
+                    
+                    VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Two, false, game)
+                    task.wait(0.01)
+                    VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Two, false, game)
+                    
+                    VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Three, false, game)
+                    task.wait(0.01)
+                    VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Three, false, game)
+                    
+                    VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Four, false, game)
+                    task.wait(0.01)
+                    VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Four, false, game)
+                end)
+            end
+        end
+    end
+end
+
+-- DUNGEON INTERFACE CONTINUED
+Tabs.Main:AddToggle("AutoFarmToggle", {
+    Title = "Auto Farm Mobs (Combat)",
+    Description = "Teleporta ate os mobs da dungeon e os ataca.",
+    Default = false,
+    Callback = function(state)
+        AutoFarmEnabled = state
+    end
+})
+
+Tabs.Main:AddToggle("AutoAttackToggle", {
+    Title = "Auto Attack (Tool/Click)",
+    Default = false,
+    Callback = function(state)
+        AutoAttackEnabled = state
+    end
+})
+
+Tabs.Main:AddToggle("AutoSkillToggle", {
+    Title = "Auto Skills (1,2,3,4)",
+    Default = false,
+    Callback = function(state)
+        AutoSkillEnabled = state
+    end
+})
+
+Tabs.Main:AddSlider("FarmDistance", {
+    Title = "Distancia do Mob (Altura)",
+    Min = 2,
+    Max = 15,
+    Default = 6,
+    Rounding = 0,
+    Callback = function(v)
+        FarmDistance = v
+    end
+})
+
+LeaveInfo = Tabs.Main:AddParagraph({ Title = "Auto Leave Status", Content = "Inativo" })
+
+Tabs.Main:AddToggle("AutoLeaveToggle", {
+    Title = "Auto Leave Dungeon",
+    Default = false,
+    Callback = function(state)
+        AutoLeaveEnabled = state
+    end
+})
+
+Tabs.Main:AddSlider("LeaveRoom", {
+    Title = "Sair na sala",
+    Min = 5,
+    Max = 150,
+    Default = 50,
+    Rounding = 0,
+    Callback = function(v)
+        LeaveRoom = math.floor(v)
+    end
+})
+
+-- ========== AUTO BALL SYSTEM ==========
+local function autoBallLoop()
+    while scriptActive() and task.wait(0.2) do
+        if not AutoBallEnabled then
+            currentTarget = "Nenhum"
+            if BallStatus then BallStatus:SetDesc("Auto Ball desativado") end
+            continue
+        end
+        
+        local ballFolder = workspace:FindFirstChild(ballsFolderName)
+        if not ballFolder then
+            currentTarget = "Pasta nao encontrada"
+            if BallStatus then BallStatus:SetDesc("❌ Pasta " .. ballsFolderName .. " nao encontrada") end
+            task.wait(1.5)
+            continue
+        end
+        
+        local targetBall = nil
+        local character = LocalPlayer.Character
+        local hrp = character and character:FindFirstChild("HumanoidRootPart")
+        if not hrp then continue end
+        
+        local myPos = hrp.Position
+        local minDist = BallRadius
+        
+        for _, obj in ipairs(ballFolder:GetChildren()) do
+            local ballPart = nil
+            if obj.Name == sphereName and obj:IsA("BasePart") then
+                ballPart = obj
+            else
+                ballPart = obj:FindFirstChild(sphereName) or obj:FindFirstChildWhichIsA("BasePart", true)
+            end
+            
+            if ballPart then
+                local prompt = obj:FindFirstChild(promptName) or obj:FindFirstChildWhichIsA("ProximityPrompt", true) or ballPart:FindFirstChildWhichIsA("ProximityPrompt", true)
+                if prompt and prompt:IsA("ProximityPrompt") then
+                    local dist = (ballPart.Position - myPos).Magnitude
+                    if dist < minDist then
+                        minDist = dist
+                        targetBall = { part = ballPart, prompt = prompt, name = obj.Name }
+                    end
+                end
+            end
+        end
+        
+        if targetBall then
+            currentTarget = targetBall.name
+            if BallStatus then
+                BallStatus:SetDesc("Target: " .. currentTarget .. " | Dist: " .. math.floor(minDist))
+            end
+            
+            local success = teleportToPosition(targetBall.part.Position)
+            if success then
+                task.wait(0.15)
+                pcall(function()
+                    fireproximityprompt(targetBall.prompt)
+                end)
+                collectedCount = collectedCount + 1
+                task.wait(BallCooldown)
+            end
         else
-            if AutoDungeonEnabled then
-                StatusLabel:SetDesc("Waiting for Dungeon invite...")
+            currentTarget = "Nenhum no raio"
+            if BallStatus then
+                BallStatus:SetDesc("Nenhuma bola encontrada no raio de " .. BallRadius)
+            end
+        end
+    end
+end
+
+-- Interface do Auto Ball
+AddBallSection()
+BallStatus = Tabs.Ball:AddParagraph({ Title = "Status das Bolas", Content = "Auto Ball desativado" })
+
+Tabs.Ball:AddToggle("AutoBallToggle", {
+    Title = "Auto Ball World 8",
+    Default = false,
+    Callback = function(state)
+        if state and not KeyPassed then
+            AutoBallEnabled = false
+            Fluent:Notify({ Title = "Key necessaria", Content = "Digite a key primeiro.", Duration = 3 })
+            return
+        end
+        AutoBallEnabled = state
+    end
+})
+
+Tabs.Ball:AddSlider("BallRadius", {
+    Title = "Raio de busca",
+    Min = 50,
+    Max = 2000,
+    Default = 600,
+    Rounding = 0,
+    Callback = function(v)
+        BallRadius = v
+    end
+})
+
+Tabs.Ball:AddSlider("BallCooldown", {
+    Title = "Cooldown de Coleta (segundos)",
+    Min = 0.1,
+    Max = 3.0,
+    Default = 0.4,
+    Rounding = 1,
+    Callback = function(v)
+        BallCooldown = v
+    end
+})
+
+-- ========== AUTO JOIN SYSTEM ==========
+AddAutoJoinSection()
+JoinStatus = Tabs.AutoJoin:AddParagraph({ Title = "Status do Auto Join", Content = "Desativado" })
+
+Tabs.AutoJoin:AddToggle("AutoJoinToggle", {
+    Title = "Auto Join / Server",
+    Default = false,
+    Callback = function(state)
+        if state and not KeyPassed then
+            AutoJoinEnabled = false
+            Fluent:Notify({ Title = "Key necessaria", Content = "Digite a key primeiro.", Duration = 3 })
+            return
+        end
+        AutoJoinEnabled = state
+    end
+})
+
+Tabs.AutoJoin:AddSlider("JoinDetectionInterval", {
+    Title = "Intervalo de deteccao (segundos)",
+    Min = 0.5,
+    Max = 10,
+    Default = 1.0,
+    Rounding = 1,
+    Callback = function(v)
+        JoinDetectionInterval = v
+    end
+})
+
+-- ========== PRIORITY SYSTEM V2 ==========
+local function secondsUntilNextEvent(intervalSec)
+    local now = os.time()
+    local remainder = now % intervalSec
+    return intervalSec - remainder
+end
+
+local function logPriorityDebug(msg)
+    if not PriorityDebugEnabled then return end
+    local timeStr = os.date("%H:%M:%S")
+    local line = "[" .. timeStr .. "] " .. msg
+    if PriorityDebugLog then
+        table.insert(PriorityDebugLines, 1, line)
+        if #PriorityDebugLines > 6 then
+            table.remove(PriorityDebugLines)
+        end
+        PriorityDebugLog:SetDesc(table.concat(PriorityDebugLines, "\n"))
+    end
+end
+
+local function prioritySystemLoop()
+    while scriptActive() and task.wait(PRIORITY_LOOP_INTERVAL) do
+        if not PrioritySystemEnabled then
+            if PriorityStatus then PriorityStatus:SetDesc("Prioridade: Desativado") end
+            continue
+        end
+        
+        local currentRoom = getCurrentDungeonRoom()
+        local inDungeon = currentRoom > 0
+        local nextGate = secondsUntilNextEvent(ModeIntervalSeconds.Gate)
+        local nextDungeon = secondsUntilNextEvent(ModeIntervalSeconds.Dungeon)
+        
+        local statusTxt = ("Gate em: %ds | Dungeon em: %ds"):format(nextGate, nextDungeon)
+        if PriorityStatus then PriorityStatus:SetDesc(statusTxt) end
+        
+        if LeaveForHigherPriority then
+            -- Se o Gate (Prioridade 1) esta prestes a iniciar
+            if inDungeon and nextGate < PREP_LEAVE_BEFORE then
+                logPriorityDebug("Saindo da Dungeon para o Gate (Falta " .. nextGate .. "s)")
+                local leaveBtn = findLeaveButton()
+                if leaveBtn then
+                    robustClickObject(leaveBtn)
+                    task.wait(PRIORITY_LEAVE_COOLDOWN)
+                end
+            end
+            
+            -- Se detecta Gate ativo (Notificacao ou portal) e esta na Dungeon
+            if inDungeon and hasActiveGatePortalByWorld() then
+                logPriorityDebug("Gate Ativo! Abandonando Dungeon...")
+                local leaveBtn = findLeaveButton()
+                if leaveBtn then
+                    robustClickObject(leaveBtn)
+                    task.wait(PRIORITY_LEAVE_COOLDOWN)
+                    PriorityPendingGateAfterLeave = true
+                end
+            end
+        end
+        
+        -- Acao pós-saida para entrar no Gate
+        if PriorityPendingGateAfterLeave and not inDungeon then
+            PriorityPendingGateAfterLeave = false
+            logPriorityDebug("Entrando no Gate pendente...")
+            clickYesInCurrentGateNotify()
+            findAndActivateSpawnGate()
+        end
+    end
+end
+
+AddSection(Tabs.Gamemodes, "PRIORITY SYSTEM V2", "Prioriza os modos automaticamente.")
+PriorityStatus = Tabs.Gamemodes:AddParagraph({ Title = "Status de Prioridade", Content = "Desativado" })
+
+Tabs.Gamemodes:AddToggle("PrioritySystemToggle", {
+    Title = "Ativar Priority System",
+    Default = false,
+    Callback = function(state)
+        PrioritySystemEnabled = state
+    end
+})
+
+Tabs.Gamemodes:AddToggle("LeaveForHigherPriorityToggle", {
+    Title = "Sair da Dungeon para Gate",
+    Default = true,
+    Callback = function(state)
+        LeaveForHigherPriority = state
+    end
+})
+
+Tabs.Gamemodes:AddSlider("PrepLeaveBefore", {
+    Title = "Sair X segundos antes",
+    Min = 30,
+    Max = 240,
+    Default = 90,
+    Rounding = 0,
+    Callback = function(v)
+        PREP_LEAVE_BEFORE = v
+    end
+})
+
+PriorityDebugLog = Tabs.Gamemodes:AddParagraph({ Title = "Logs de Prioridade", Content = "Nenhum evento registrado" })
+
+-- ========== MISC TAB ==========
+Tabs.Misc:AddParagraph({ Title = "Modificacoes Locais", Content = "Ajustes fisicos do personagem." })
+
+local CustomSpeedEnabled = false
+local CustomSpeed = 50
+local CustomJumpEnabled = false
+local CustomJump = 50
+local InfiniteJumpEnabled = false
+local NoclipEnabled = false
+
+Tabs.Misc:AddToggle("SpeedToggle", {
+    Title = "Custom Speed",
+    Default = false,
+    Callback = function(state)
+        CustomSpeedEnabled = state
+    end
+})
+
+Tabs.Misc:AddSlider("SpeedSlider", {
+    Title = "Speed value",
+    Min = 16,
+    Max = 300,
+    Default = 50,
+    Rounding = 0,
+    Callback = function(v)
+        CustomSpeed = v
+    end
+})
+
+Tabs.Misc:AddToggle("JumpToggle", {
+    Title = "Custom Jump Power",
+    Default = false,
+    Callback = function(state)
+        CustomJumpEnabled = state
+    end
+})
+
+Tabs.Misc:AddSlider("JumpSlider", {
+    Title = "Jump Power value",
+    Min = 50,
+    Max = 500,
+    Default = 50,
+    Rounding = 0,
+    Callback = function(v)
+        CustomJump = v
+    end
+})
+
+Tabs.Misc:AddToggle("InfJumpToggle", {
+    Title = "Infinite Jump",
+    Default = false,
+    Callback = function(state)
+        InfiniteJumpEnabled = state
+    end
+})
+
+Tabs.Misc:AddToggle("NoclipToggle", {
+    Title = "Noclip (Atravessar Paredes)",
+    Default = false,
+    Callback = function(state)
+        NoclipEnabled = state
+    end
+})
+
+Tabs.Misc:AddButton({
+    Title = "Bypass Key",
+    Description = "Ignora a necessidade de digitar key para testes.",
+    Callback = function()
+        KeyPassed = true
+        KeyStatus:SetDesc("Key correta! Script liberado (Bypassed).") 
+        Fluent:Notify({ Title = "Bypassed!", Content = "Acesso liberado sem key!", Duration = 3 })
+        Window:SelectTab(3)
+    end
+})
+
+Tabs.Misc:AddButton({
+    Title = "Teleport Spawn / Lobby",
+    Description = "Teleporta o seu personagem de volta ao spawn principal.",
+    Callback = function()
+        teleportToPosition(Vector3.new(0, 10, 0))
+        Fluent:Notify({ Title = "Teleport", Content = "Enviado ao Spawn!", Duration = 3 })
+    end
+})
+
+-- Loops do Misc
+game:GetService("UserInputService").JumpRequest:Connect(function()
+    if InfiniteJumpEnabled and ensureCharacterAlive() then
+        LocalPlayer.Character.Humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+    end
+end)
+
+RunService.Stepped:Connect(function()
+    if NoclipEnabled and ensureCharacterAlive() then
+        for _, part in ipairs(LocalPlayer.Character:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.CanCollide = false
             end
         end
     end
 end)
 
--- ========== INICIALIZAÇÃO ==========
-task.spawn(collectionLoop) -- Auto Ball
-task.spawn(startAriseSystem) -- Auto Arise
-task.spawn(autoLeaveLoop) -- Auto Leave
-task.spawn(prioritySchedulerLoop) -- Prioridade de Entrada
+task.spawn(function()
+    while scriptActive() and task.wait(0.5) do
+        pcall(function()
+            if ensureCharacterAlive() then
+                local hum = LocalPlayer.Character.Humanoid
+                if CustomSpeedEnabled then
+                    hum.WalkSpeed = CustomSpeed
+                end
+                if CustomJumpEnabled then
+                    hum.JumpPower = CustomJump
+                end
+            end
+        end)
+    end
+end)
 
--- Auto Join opcional
-AddAutoJoinSection()
-JoinStatus = Tabs.AutoJoin:AddParagraph({ Title = "Status", Content = "Auto Join parado" })
+-- ========== SETTINGS TAB ==========
+Tabs.Settings:AddParagraph({ Title = "Configuracoes da GUI", Content = "Gerenciamento da Fluent UI" })
 
-Tabs.AutoJoin:AddToggle("AutoJoinToggle", {
-    Title = "Ativar Auto Join", 
-    Default = false, 
-    Callback = function(state) 
-        if state and not KeyPassed then
-            AutoJoinEnabled = false
-            Fluent:Notify({ Title = "Key necessária", Content = "Digite a key primeiro.", Duration = 3 })
-            return
-        end
-        AutoJoinEnabled = state
-        if state then
-            task.spawn(autoJoinLoop)
-        end
+Tabs.Settings:AddButton({
+    Title = "Destruir UI",
+    Description = "Fecha o script e limpa todas as conexoes.",
+    Callback = function()
+        Window:Destroy()
     end
 })
 
-Tabs.AutoJoin:AddSlider("JoinInterval", {
-    Title = "Intervalo de detecção (s)", 
-    Min = 0.5, 
-    Max = 5, 
-    Default = 1.0, 
-    Rounding = 1, 
-    Callback = function(v) 
-        JoinDetectionInterval = v 
+Tabs.Settings:AddDropdown("ThemeDropdown", {
+    Title = "Tema da Interface",
+    Values = { "Dark", "Light", "Aqua", "Amethyst" },
+    Default = "Dark",
+    Callback = function(theme)
+        Window:SetTheme(theme)
     end
 })
 
+-- INICIALIZACAO DOS LOOPS PARALELOS
+task.spawn(autoJoinLoop)
+task.spawn(autoLeaveLoop)
+task.spawn(autoFarmLoop)
+task.spawn(autoBallLoop)
+task.spawn(prioritySystemLoop)
+
+-- Notificacao inicial de carregamento
+Fluent:Notify({
+    Title = "BR Anime Astral PRO",
+    Content = "Script carregado com sucesso! Digite a Key para liberar.",
+    Duration = 5
+})
 Window:SelectTab(2)
-local nowLoadedNotify = os.clock()
-if not SCRIPT_ENV.BR_ANIME_ASTRAL_LAST_LOADED_NOTIFY or (nowLoadedNotify - SCRIPT_ENV.BR_ANIME_ASTRAL_LAST_LOADED_NOTIFY) > 8 then
-    SCRIPT_ENV.BR_ANIME_ASTRAL_LAST_LOADED_NOTIFY = nowLoadedNotify
-    Fluent:Notify({ Title = "✅ Script Carregado", Content = "Sistema PRO completo ativado! Todos os módulos prontos.", Duration = 3 })
-end
