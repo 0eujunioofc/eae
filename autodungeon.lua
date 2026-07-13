@@ -25,7 +25,7 @@ local RunService = game:GetService("RunService")
 local LocalPlayer = Players.LocalPlayer
 
 -- Carregar Fluent UI
-local FLUENT_URL = "https://raw.githubusercontent.com/0eujunioofc/eae/main/junio.lua"
+local Fluent = loadstring(game:HttpGet("https://raw.githubusercontent.com/0eujunioofc/eae/main/junio.lua"))()
 
 local okHttp, source = pcall(function()
     return game:HttpGet(FLUENT_URL)
