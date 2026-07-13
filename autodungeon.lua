@@ -933,6 +933,69 @@ local function scanCurrentGates()
     end
 end
 
+-- ========== TRIAL HELPERS ==========
+local function hasVisibleTrialNotifyDirect()
+    local notifyRoot = LocalPlayer.PlayerGui:FindFirstChild("HUD")
+        and LocalPlayer.PlayerGui.HUD:FindFirstChild("Main")
+        and LocalPlayer.PlayerGui.HUD.Main:FindFirstChild("GamemodeNotify")
+
+    if not notifyRoot then return false, nil end
+
+    for _, card in ipairs(notifyRoot:GetChildren()) do
+        if card:IsA("GuiObject") and card.Visible then
+            local desc = card:FindFirstChild("Description")
+            if desc and desc:IsA("TextLabel") then
+                local txt = desc.Text:lower()
+                if txt:find("trial") then
+                    local difficulty = "unknown"
+                    if txt:find("easy") then difficulty = "Easy" end
+                    if txt:find("medium") then difficulty = "Medium" end
+                    return true, difficulty
+                end
+            end
+        end
+    end
+    return false, nil
+end
+
+local function clickYesInCurrentTrialNotify()
+    if not ensureCharacterAlive() then return false end
+    
+    local notifyRoot = LocalPlayer.PlayerGui:FindFirstChild("HUD")
+        and LocalPlayer.PlayerGui.HUD:FindFirstChild("Main")
+        and LocalPlayer.PlayerGui.HUD.Main:FindFirstChild("GamemodeNotify")
+    
+    if not notifyRoot then return false end
+    
+    for _, card in ipairs(notifyRoot:GetChildren()) do
+        if card:IsA("GuiObject") and card.Visible then
+            local desc = card:FindFirstChild("Description")
+            if desc and desc:IsA("TextLabel") then
+                local txt = desc.Text:lower()
+                if txt:find("trial") then
+                    local actions = card:FindFirstChild("Actions")
+                    if actions then
+                        for _, btn in ipairs(actions:GetDescendants()) do
+                            if (btn:IsA("TextButton") or btn:IsA("ImageButton")) then
+                                local btnText = (btn.Text or ""):lower()
+                                local btnName = (btn.Name or ""):lower()
+                                if btnText:find("yes") or btnName:find("yes") or btnText:find("confirm") or btnName:find("confirm") then
+                                    if robustClickObject(btn) then
+                                        Fluent:Notify({ Title = "✅ Trial Aceito", Content = "Indo para o Trial...", Duration = 3 })
+                                        task.wait(1)
+                                        return true
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return false
+end
+
 -- Detector de novas notificações
 local function setupGateDetector()
     local success, notifyRoot = pcall(function()
@@ -1529,11 +1592,11 @@ local function findNearestEnemy()
     return nearest
 end
 
-local GlobalAction = "IDLE" -- Estados: IDLE, FARMING, GATE_PRIORITY
+local GlobalAction = "IDLE" -- Estados: IDLE, FARMING, GATE_PRIORITY, TRIAL_PRIORITY
 
 local function autoFarmLoop()
     while scriptActive() and task.wait(0.1) do
-        if GlobalAction == "GATE_PRIORITY" then
+        if GlobalAction == "GATE_PRIORITY" or GlobalAction == "TRIAL_PRIORITY" then
             continue
         end
 
@@ -1763,6 +1826,17 @@ Tabs.Main:AddSlider("LeaveRoom", {
     end
 })
 
+local SelectedTrialMode = "Desativado"
+Tabs.Main:AddDropdown("AutoTrialDropdown", {
+    Title = "Auto Trial",
+    Values = { "Desativado", "Easy", "Medium", "Qualquer" },
+    Default = "Desativado",
+    Multi = false,
+    Callback = function(value)
+        SelectedTrialMode = value
+    end
+})
+
 local AutoRejoinDungeonEnabled = false
 Tabs.Main:AddToggle("AutoRejoinDungeon", {
     Title = "Auto Rejoin Dungeon",
@@ -1775,7 +1849,7 @@ Tabs.Main:AddToggle("AutoRejoinDungeon", {
 
 local function autoRejoinDungeonLoop()
     while scriptActive() and task.wait(3) do
-        if not AutoRejoinDungeonEnabled or GlobalAction == "GATE_PRIORITY" then
+        if not AutoRejoinDungeonEnabled or GlobalAction == "GATE_PRIORITY" or GlobalAction == "TRIAL_PRIORITY" then
             continue
         end
 
@@ -2007,6 +2081,8 @@ local function logPriorityDebug(msg)
     end
 end
 
+local PriorityPendingTrialAfterLeave = false
+
 local function prioritySystemLoop()
     while scriptActive() and task.wait(PRIORITY_LOOP_INTERVAL) do
         if not PrioritySystemEnabled then
@@ -2022,8 +2098,30 @@ local function prioritySystemLoop()
         local statusTxt = ("Gate em: %ds | Dungeon em: %ds | Action: %s"):format(nextGate, nextDungeon, GlobalAction)
         if PriorityStatus then PriorityStatus:SetDesc(statusTxt) end
         
+        local hasTrial, trialDiff = hasVisibleTrialNotifyDirect()
+        local wantsTrial = false
+        if hasTrial and SelectedTrialMode ~= "Desativado" then
+            if SelectedTrialMode == "Qualquer" or SelectedTrialMode == trialDiff then
+                wantsTrial = true
+            end
+        end
+        
         if LeaveForHigherPriority then
-            if inDungeon and hasActiveGatePortalByWorld() then
+            if wantsTrial then
+                GlobalAction = "TRIAL_PRIORITY"
+                if inDungeon then
+                    logPriorityDebug("Trial Ativo! Abandonando Dungeon...")
+                    local leaveBtn = findLeaveButton()
+                    if leaveBtn then
+                        robustClickObject(leaveBtn)
+                        task.wait(PRIORITY_LEAVE_COOLDOWN)
+                        PriorityPendingTrialAfterLeave = true
+                    end
+                else
+                    logPriorityDebug("Entrando no Trial...")
+                    clickYesInCurrentTrialNotify()
+                end
+            elseif inDungeon and hasActiveGatePortalByWorld() then
                 GlobalAction = "GATE_PRIORITY"
                 logPriorityDebug("Gate Ativo! Abandonando Dungeon...")
                 local leaveBtn = findLeaveButton()
@@ -2037,12 +2135,22 @@ local function prioritySystemLoop()
                 logPriorityDebug("Entrando no Gate...")
                 clickYesInCurrentGateNotify()
                 findAndActivateSpawnGate()
+            elseif GlobalAction == "TRIAL_PRIORITY" then
+                if (not inDungeon and verifyGateEntry()) or (not hasVisibleTrialNotifyDirect()) then
+                    GlobalAction = "IDLE"
+                end
             elseif GlobalAction == "GATE_PRIORITY" then
                 -- Se entrou no gate com sucesso, ou se o gate sumiu
                 if (not inDungeon and verifyGateEntry()) or (not inDungeon and not hasActiveGatePortalByWorld()) then
                     GlobalAction = "IDLE"
                 end
             end
+        end
+        
+        if PriorityPendingTrialAfterLeave and not inDungeon then
+            PriorityPendingTrialAfterLeave = false
+            logPriorityDebug("Entrando no Trial pendente...")
+            clickYesInCurrentTrialNotify()
         end
         
         -- Acao pós-saida para entrar no Gate
@@ -2096,7 +2204,7 @@ local StatPointAmount = 1
 
 local function autoProgressionLoop()
     while scriptActive() and task.wait(5) do
-        if GlobalAction == "GATE_PRIORITY" then
+        if GlobalAction == "GATE_PRIORITY" or GlobalAction == "TRIAL_PRIORITY" then
             continue
         end
 
