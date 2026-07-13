@@ -91,7 +91,8 @@ local CorrectKey = "A200915E"
 local Tabs = { 
     Updates = Window:AddTab({ Title = "Updates", Icon = "info" }), 
     Key = Window:AddTab({ Title = "Key", Icon = "key" }), 
-    Gamemodes = Window:AddTab({ Title = "Gamemodes", Icon = "circle" }), 
+    Gamemodes = Window:AddTab({ Title = "Gamemodes", Icon = "circle" }),
+    Progression = Window:AddTab({ Title = "Progression", Icon = "trending-up" }),
     Misc = Window:AddTab({ Title = "Misc", Icon = "settings" }), 
     Settings = Window:AddTab({ Title = "Settings", Icon = "sliders-horizontal" })
 }
@@ -1465,6 +1466,8 @@ local function autoLeaveLoop()
 end
 
 -- COMBAT AUTO FARM IN DUNGEON
+local SelectedFarmTarget = "Qualquer"
+
 local function findNearestEnemy()
     local character = LocalPlayer.Character
     if not character or not character:FindFirstChild("HumanoidRootPart") then
@@ -1506,7 +1509,15 @@ local function findNearestEnemy()
         end
     end
     
+    -- Filter targets by SelectedFarmTarget
+    local validTargets = {}
     for _, target in ipairs(targets) do
+        if SelectedFarmTarget == "Qualquer" or target.Name:lower() == SelectedFarmTarget:lower() then
+            table.insert(validTargets, target)
+        end
+    end
+
+    for _, target in ipairs(validTargets) do
         local hrp = target.HumanoidRootPart
         local dist = (hrp.Position - myPos).Magnitude
         if dist < minDist then
@@ -1518,11 +1529,20 @@ local function findNearestEnemy()
     return nearest
 end
 
+local GlobalAction = "IDLE" -- Estados: IDLE, FARMING, GATE_PRIORITY
+
 local function autoFarmLoop()
     while scriptActive() and task.wait(0.1) do
-        if not AutoFarmEnabled or not ensureCharacterAlive() then
+        if GlobalAction == "GATE_PRIORITY" then
             continue
         end
+
+        if not AutoFarmEnabled or not ensureCharacterAlive() then
+            if GlobalAction == "FARMING" then GlobalAction = "IDLE" end
+            continue
+        end
+        
+        GlobalAction = "FARMING"
         
         local target = findNearestEnemy()
         if target and target:FindFirstChild("HumanoidRootPart") then
@@ -1532,15 +1552,30 @@ local function autoFarmLoop()
             
             if myHrp then
                 pcall(function()
-                    local targetCFrame = hrp.CFrame * CFrame.new(0, FarmDistance, 0)
-                    local dist = (myHrp.Position - targetCFrame.Position).Magnitude
+                    -- Fix rotation bug: Use absolute position + Y offset instead of rotating with enemy
+                    local targetPos = hrp.Position + Vector3.new(0, FarmDistance, 0)
+                    local dist = (myHrp.Position - targetPos).Magnitude
+                    
                     if dist > 10 then
                         local tweenInfo = TweenInfo.new(0.2, Enum.EasingStyle.Linear)
-                        TweenService:Create(myHrp, tweenInfo, {CFrame = targetCFrame}):Play()
+                        TweenService:Create(myHrp, tweenInfo, {CFrame = CFrame.new(targetPos)}):Play()
                     else
-                        myHrp.CFrame = targetCFrame
+                        myHrp.CFrame = CFrame.new(targetPos)
+                    end
+                    
+                    -- Freeze falling/gravity
+                    if not myHrp:FindFirstChild("FarmBodyVelocity") then
+                        local bv = Instance.new("BodyVelocity")
+                        bv.Name = "FarmBodyVelocity"
+                        bv.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+                        bv.Velocity = Vector3.new(0, 0, 0)
+                        bv.Parent = myHrp
                     end
                 end)
+            else
+                if myHrp and myHrp:FindFirstChild("FarmBodyVelocity") then
+                    myHrp.FarmBodyVelocity:Destroy()
+                end
             end
             
             -- Auto Loot Genérico
@@ -1599,11 +1634,78 @@ local function autoFarmLoop()
                     VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Four, false, game)
                 end)
             end
+        else
+            -- Clean up velocity if no target
+            local myHrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+            if myHrp and myHrp:FindFirstChild("FarmBodyVelocity") then
+                myHrp.FarmBodyVelocity:Destroy()
+            end
         end
     end
 end
 
 -- DUNGEON INTERFACE CONTINUED
+local TargetDropdown
+Tabs.Main:AddButton({
+    Title = "Escanear Mapa (Atualizar Alvos)",
+    Description = "Procura todos os bosses e mobs vivos no momento para o Radar.",
+    Callback = function()
+        local uniqueNames = { "Qualquer" }
+        local found = {}
+        
+        -- Scan RaidArenas
+        local raidArenas = workspace:FindFirstChild("RaidArenas")
+        if raidArenas then
+            for _, world in ipairs(raidArenas:GetChildren()) do
+                local enemies = world:FindFirstChild("Enemies")
+                if enemies then
+                    for _, enemy in ipairs(enemies:GetChildren()) do
+                        if enemy:IsA("Model") and enemy:FindFirstChild("HumanoidRootPart") and enemy:FindFirstChildOfClass("Humanoid") then
+                            local hum = enemy:FindFirstChildOfClass("Humanoid")
+                            if hum.Health > 0 and not found[enemy.Name] then
+                                found[enemy.Name] = true
+                                table.insert(uniqueNames, enemy.Name)
+                            end
+                        end
+                    end
+                end
+            end
+        end
+        
+        -- Scan Workspace
+        for _, obj in ipairs(workspace:GetChildren()) do
+            if obj:IsA("Model") and obj ~= LocalPlayer.Character and not Players:GetPlayerFromCharacter(obj) then
+                local hrp = obj:FindFirstChild("HumanoidRootPart")
+                local hum = obj:FindFirstChildOfClass("Humanoid")
+                if hrp and hum and hum.Health > 0 then
+                    local objName = obj.Name:lower()
+                    if objName ~= "npc" and not objName:find("quest") and not objName:find("shop") and not objName:find("teleporter") then
+                        if not found[obj.Name] then
+                            found[obj.Name] = true
+                            table.insert(uniqueNames, obj.Name)
+                        end
+                    end
+                end
+            end
+        end
+        
+        if TargetDropdown then
+            TargetDropdown:SetValues(uniqueNames)
+            Fluent:Notify({ Title = "Radar Atualizado", Content = "Encontrados " .. (#uniqueNames - 1) .. " alvos unicos.", Duration = 3 })
+        end
+    end
+})
+
+TargetDropdown = Tabs.Main:AddDropdown("TargetSelector", {
+    Title = "Selecionar Alvo (Boss Sniper)",
+    Values = { "Qualquer" },
+    Default = "Qualquer",
+    Multi = false,
+    Callback = function(value)
+        SelectedFarmTarget = value
+    end
+})
+
 Tabs.Main:AddToggle("AutoFarmToggle", {
     Title = "Auto Farm Mobs (Combat)",
     Description = "Teleporta ate os mobs da dungeon e os ataca.",
@@ -1660,6 +1762,94 @@ Tabs.Main:AddSlider("LeaveRoom", {
         LeaveRoom = math.floor(v)
     end
 })
+
+local AutoRejoinDungeonEnabled = false
+Tabs.Main:AddToggle("AutoRejoinDungeon", {
+    Title = "Auto Rejoin Dungeon",
+    Description = "Entra automaticamente na Dungeon (World 9) se estiver no lobby",
+    Default = false,
+    Callback = function(state)
+        AutoRejoinDungeonEnabled = state
+    end
+})
+
+local function autoRejoinDungeonLoop()
+    while scriptActive() and task.wait(3) do
+        if not AutoRejoinDungeonEnabled or GlobalAction == "GATE_PRIORITY" then
+            continue
+        end
+
+        local currentRoom = getCurrentDungeonRoom()
+        local raidArenas = workspace:FindFirstChild("RaidArenas")
+        local inGate = false
+        if raidArenas then
+            for _, world in ipairs(raidArenas:GetChildren()) do
+                if world:FindFirstChild("Enemies") then
+                    inGate = true
+                    break
+                end
+            end
+        end
+
+        -- Se não estiver em dungeon, tenta clicar no YES da tela ou ir pro portal
+        if currentRoom <= 0 and not inGate then
+            
+            -- 1. Tentar clicar no botão YES da tela (Notificação de Dungeon)
+            local clickedYes = false
+            pcall(function()
+                local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
+                if playerGui then
+                    for _, obj in ipairs(playerGui:GetDescendants()) do
+                        if obj:IsA("TextButton") and obj.Visible then
+                            local text = obj.Text:lower()
+                            if text == "yes" or text == "sim" or text == "accept" then
+                                -- Verifica se o pai ou a UI menciona Dungeon
+                                local parent = obj.Parent
+                                local isDungeon = false
+                                while parent and parent ~= playerGui do
+                                    if parent.Name:lower():find("dungeon") then
+                                        isDungeon = true
+                                        break
+                                    end
+                                    -- Check text of siblings just in case
+                                    for _, sibling in ipairs(parent:GetChildren()) do
+                                        if sibling:IsA("TextLabel") and sibling.Text:lower():find("dungeon") then
+                                            isDungeon = true
+                                        end
+                                    end
+                                    parent = parent.Parent
+                                end
+                                
+                                if isDungeon then
+                                    robustClickObject(obj)
+                                    clickedYes = true
+                                    task.wait(1)
+                                end
+                            end
+                        end
+                    end
+                end
+            end)
+
+            -- 2. Se não clicou no YES, vai para a construção de Fogo (World 9) e encosta nela
+            if not clickedYes then
+                local dungeonStation = getRaidStationForWorld(9)
+                if dungeonStation then
+                    -- Descobre a peça correta para encostar
+                    local touchPart = dungeonStation:IsA("BasePart") and dungeonStation or dungeonStation:FindFirstChild("Portal") or dungeonStation:FindFirstChildWhichIsA("BasePart", true)
+                    if touchPart then
+                        local myHrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+                        if myHrp then
+                            -- Teleporta EXATAMENTE para dentro da peça para encostar
+                            myHrp.CFrame = touchPart.CFrame
+                            task.wait(0.5)
+                        end
+                    end
+                end
+            end
+        end
+    end
+end
 
 -- ========== AUTO BALL SYSTEM ==========
 local function autoBallLoop()
@@ -1829,28 +2019,28 @@ local function prioritySystemLoop()
         local nextGate = secondsUntilNextEvent(ModeIntervalSeconds.Gate)
         local nextDungeon = secondsUntilNextEvent(ModeIntervalSeconds.Dungeon)
         
-        local statusTxt = ("Gate em: %ds | Dungeon em: %ds"):format(nextGate, nextDungeon)
+        local statusTxt = ("Gate em: %ds | Dungeon em: %ds | Action: %s"):format(nextGate, nextDungeon, GlobalAction)
         if PriorityStatus then PriorityStatus:SetDesc(statusTxt) end
         
         if LeaveForHigherPriority then
-            -- Se o Gate (Prioridade 1) esta prestes a iniciar
-            if inDungeon and nextGate < PREP_LEAVE_BEFORE then
-                logPriorityDebug("Saindo da Dungeon para o Gate (Falta " .. nextGate .. "s)")
-                local leaveBtn = findLeaveButton()
-                if leaveBtn then
-                    robustClickObject(leaveBtn)
-                    task.wait(PRIORITY_LEAVE_COOLDOWN)
-                end
-            end
-            
-            -- Se detecta Gate ativo (Notificacao ou portal) e esta na Dungeon
             if inDungeon and hasActiveGatePortalByWorld() then
+                GlobalAction = "GATE_PRIORITY"
                 logPriorityDebug("Gate Ativo! Abandonando Dungeon...")
                 local leaveBtn = findLeaveButton()
                 if leaveBtn then
                     robustClickObject(leaveBtn)
                     task.wait(PRIORITY_LEAVE_COOLDOWN)
                     PriorityPendingGateAfterLeave = true
+                end
+            elseif not inDungeon and not verifyGateEntry() and hasActiveGatePortalByWorld() then
+                GlobalAction = "GATE_PRIORITY"
+                logPriorityDebug("Entrando no Gate...")
+                clickYesInCurrentGateNotify()
+                findAndActivateSpawnGate()
+            elseif GlobalAction == "GATE_PRIORITY" then
+                -- Se entrou no gate com sucesso, ou se o gate sumiu
+                if (not inDungeon and verifyGateEntry()) or (not inDungeon and not hasActiveGatePortalByWorld()) then
+                    GlobalAction = "IDLE"
                 end
             end
         end
@@ -1896,6 +2086,132 @@ Tabs.Gamemodes:AddSlider("PrepLeaveBefore", {
 })
 
 PriorityDebugLog = Tabs.Gamemodes:AddParagraph({ Title = "Logs de Prioridade", Content = "Nenhum evento registrado" })
+
+-- ========== SISTEMA DE PROGRESSÃO ==========
+local AutoClaimRewardsEnabled = false
+local AutoStatsEnabled = false
+local AutoEquipBestEnabled = false
+local SelectedStatToUpgrade = "Damage"
+local StatPointAmount = 1
+
+local function autoProgressionLoop()
+    while scriptActive() and task.wait(5) do
+        if GlobalAction == "GATE_PRIORITY" then
+            continue
+        end
+
+        local pcallOk, networkFunctions = pcall(function()
+            return game:GetService("ReplicatedStorage"):WaitForChild("SimpleWorld", 2):WaitForChild("Library", 2):WaitForChild("Network", 2):WaitForChild("Functions", 2)
+        end)
+
+        if pcallOk and networkFunctions then
+            if AutoClaimRewardsEnabled then
+                pcall(function()
+                    local claimTime = networkFunctions:FindFirstChild("ClaimAllTimeRewards")
+                    if claimTime then claimTime:InvokeServer() end
+                    
+                    local claimDaily = networkFunctions:FindFirstChild("ClaimAllDailyRewards")
+                    if claimDaily then claimDaily:InvokeServer() end
+                end)
+            end
+
+            if AutoStatsEnabled then
+                pcall(function()
+                    local spendStat = networkFunctions:FindFirstChild("SpendStatPoint")
+                    if spendStat then
+                        spendStat:InvokeServer(SelectedStatToUpgrade, StatPointAmount)
+                    end
+                end)
+            end
+        end
+
+        if AutoEquipBestEnabled then
+            pcall(function()
+                local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
+                if playerGui then
+                    for _, obj in ipairs(playerGui:GetDescendants()) do
+                        if obj:IsA("TextButton") or obj:IsA("ImageButton") or obj:IsA("TextLabel") then
+                            local text = obj:IsA("TextButton") and obj.Text or (obj:IsA("TextLabel") and obj.Text or "")
+                            if obj.Name:lower():find("equipbest") or obj.Name:lower():find("equip_best") or text:lower():find("equip best") then
+                                -- If it's a TextLabel inside a button, find the parent button
+                                local targetBtn = obj
+                                if not targetBtn:IsA("GuiButton") and targetBtn.Parent:IsA("GuiButton") then
+                                    targetBtn = targetBtn.Parent
+                                end
+                                if targetBtn:IsA("GuiButton") then
+                                    robustClickObject(targetBtn)
+                                end
+                            end
+                        end
+                    end
+                end
+            end)
+        end
+    end
+end
+
+AddSpace(Tabs.Progression)
+Tabs.Progression:AddParagraph({ Title = "========== AUTO PROGRESSION ==========", Content = "Automatiza recompensas e status." })
+local ProgressionStatus = Tabs.Progression:AddParagraph({ Title = "Status", Content = "Desativado" })
+
+Tabs.Progression:AddToggle("AutoClaimToggle", {
+    Title = "Auto Claim Rewards",
+    Description = "Coleta automaticamente Time e Daily rewards (se houver)",
+    Default = false,
+    Callback = function(state)
+        if state and not KeyPassed then
+            AutoClaimRewardsEnabled = false
+            Fluent:Notify({ Title = "Key necessaria", Content = "Digite a key primeiro.", Duration = 3 })
+            return
+        end
+        AutoClaimRewardsEnabled = state
+        ProgressionStatus:SetDesc(state and "Sistema Ativo" or "Desativado")
+    end
+})
+
+Tabs.Progression:AddToggle("AutoEquipBestToggle", {
+    Title = "Auto Equip Best",
+    Description = "Clica automaticamente no botão Equip Best",
+    Default = false,
+    Callback = function(state)
+        AutoEquipBestEnabled = state
+    end
+})
+
+Tabs.Progression:AddToggle("AutoStatsToggle", {
+    Title = "Auto Up Stats",
+    Description = "Gasta pontos de status automaticamente na skill escolhida",
+    Default = false,
+    Callback = function(state)
+        if state and not KeyPassed then
+            AutoStatsEnabled = false
+            Fluent:Notify({ Title = "Key necessaria", Content = "Digite a key primeiro.", Duration = 3 })
+            return
+        end
+        AutoStatsEnabled = state
+    end
+})
+
+Tabs.Progression:AddDropdown("StatDropdown", {
+    Title = "Status para Upar",
+    Values = { "Power", "Damage", "Luck", "Yen", "Drop", "XP" },
+    Default = "Damage",
+    Multi = false,
+    Callback = function(value)
+        SelectedStatToUpgrade = value
+    end
+})
+
+Tabs.Progression:AddSlider("StatAmountSlider", {
+    Title = "Pontos por vez",
+    Min = 1,
+    Max = 100,
+    Default = 1,
+    Rounding = 0,
+    Callback = function(value)
+        StatPointAmount = value
+    end
+})
 
 -- ========== MISC TAB ==========
 Tabs.Misc:AddParagraph({ Title = "Modificacoes Locais", Content = "Ajustes fisicos do personagem." })
@@ -2040,6 +2356,8 @@ task.spawn(autoLeaveLoop)
 task.spawn(autoFarmLoop)
 task.spawn(autoBallLoop)
 task.spawn(prioritySystemLoop)
+task.spawn(autoRejoinDungeonLoop)
+task.spawn(autoProgressionLoop)
 
 -- Notificacao inicial de carregamento
 Fluent:Notify({
